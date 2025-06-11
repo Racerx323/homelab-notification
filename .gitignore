@@ -1,0 +1,12 @@
+# Notification specific ignores
+*.log
+*.tmp
+*.bak
+# IMPORTANT: Never commit actual API keys or secrets here!
+# These lines are examples, make sure your actual keys are not in the repo.
+# secret_keys.txt
+# api_credentials.env
+
+# General ignores
+.DS_Store
+Thumbs.db
