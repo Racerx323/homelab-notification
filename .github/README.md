@@ -1,7 +1,7 @@
 # Homelab Notification Services
 
-[![License](https://badgen.net/github/license/Racerx323/homelab-notification)](https://github.com/Racerx323/homelab-notification/blob/main/LICENSE.md)
-[![last commit](https://badgen.net/github/last-commit/Racerx323/homelab-notification)](https://github.com/Racerx323/homelab-notification/commit/main)
+![License](https://badgen.net/github/license/Racerx323/homelab-notification)
+![last commit](https://badgen.net/github/last-commit/Racerx323/homelab-notification)
 [![Open Issues](https://badgen.net/github/open-issues/Racerx323/homelab-notification)](https://github.com/Racerx323/homelab-notification/issues?q=is%3Aissue%20state%3Aopen)
 [![Pull Requests](https://badgen.net/github/prs/Racerx323/homelab-notification)](https://github.com/Racerx323/homelab-notification/pulls)
 
