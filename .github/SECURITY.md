@@ -13,7 +13,7 @@ Only the latest version of `homelab-notification` is supported with security upd
 
 ## Reporting a Vulnerability
 
-I have enabled **private vulnerability reporting** for this project. This is the preferred and most secure way to report a vulnerability.
+I have enabled **[private vulnerability reporting](https://github.com/Racerx323/homelab-notification/security/advisories/new)** for this project. This is the preferred and most secure way to report a vulnerability.
 
 When submitting your report, please provide as much detail as possible, including:
 
@@ -24,7 +24,7 @@ When submitting your report, please provide as much detail as possible, includin
 
 If for some reason you are unable to use GitHub's private reporting, you can send a confidential email to:
 
-- **<aaronmanderson+github@proton.me>**
+- **[aaronmanderson+github@proton.me](mailto:aaronmanderson+github@proton.me)**
 
 ## Our Commitment & Disclosure Process
 
