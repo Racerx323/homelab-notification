@@ -17,10 +17,9 @@ The goal is to have a single source of truth for these configurations, making th
 
 Currently, this repository includes configurations for:
 
-* **[Apprise API](apprise-api/)**: A centralized REST API for sending notifications to 100+ notification services. Automated installation and deployment for Debian 12 on Raspberry Pi 5 with Podman. Supports rootless mode for enhanced security.
-* **[Mailgun](email/Mailgun/)**: An email automation service.
-* **[SMTP2GO](email/SMTP2GO/)**: An SMTP provider for sending emails.
-* _(More to come!)_
+* **[Apprise API](../apprise-api/)**: A centralized REST API for sending notifications to 100+ notification services. Automated installation and deployment for Debian 12 on Raspberry Pi 5 with Podman. Supports rootless mode for enhanced security.
+* **[Mailgun](../email/Mailgun/)**: An email automation service.
+* **[SMTP2GO](../email/SMTP2GO/)**: An SMTP provider for sending emails.
 
 ## � Project Structure
 
@@ -51,11 +50,11 @@ sudo ./install-apprise-podman.sh --systemd
 curl http://localhost:8000/docs  # View API documentation
 ```
 
-See [apprise-api/README.md](apprise-api/README.md) for detailed setup and configuration.
+See [apprise-api/README.md](../apprise-api/README.md) for detailed setup and configuration.
 
 ### For Email Services
 
-Configure your preferred email service (Mailgun or SMTP2GO) in the `email/` directory.
+Configure your preferred email service (Mailgun or SMTP2GO) in the [`email/`](../email/) directory.
 
 <!-- **Example Usage:**
 
