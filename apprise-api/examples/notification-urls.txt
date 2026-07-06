@@ -1,0 +1,65 @@
+# Apprise API - Example Notification Configurations
+# This file contains EXAMPLE URLs for various notification services.
+# NEVER replace placeholders with real credentials in this file if it is
+# tracked by git. Copy to a private location (e.g. ~/.apprise/apprise.yml)
+# and add real values there.
+# See: https://github.com/caronc/apprise/wiki/Apprise_Notification_Services
+
+## Discord
+# Replace webhook_id and webhook_token with your actual values
+# https://discord.gg/webhooks
+discord://webhook_id/webhook_token
+
+## Telegram
+# Replace bot_token and chat_id with your actual values
+# Get bot token from @BotFather on Telegram
+# Get chat ID by sending a message to @userinfobot
+tgram://bot_token/chat_id
+
+## Slack
+# Replace token_a, token_b, token_c with your actual values
+# Get tokens from Slack webhook settings
+slack://token_a/token_b/token_c
+
+## Email (Gmail SMTP)
+# Enable "Less secure app access" in Gmail settings
+# Or use App Password if 2FA enabled
+mailsmtp://gmail_username:gmail_password@smtp.gmail.com:587/?from=gmail_username@gmail.com
+
+## Email (Outlook/Office365)
+mailsmtp://outlook_email:outlook_password@smtp.office365.com:587/?from=outlook_email@outlook.com
+
+## PagerDuty
+# Replace integration_key with your actual value
+pagerduty://integration_key
+
+## Webhook (Generic JSON)
+# Send notifications to any webhook URL
+json://your-webhook-url
+
+## Webhook (Generic with authentication)
+json://your-webhook-url?headers.Authorization=Bearer%20YOUR_TOKEN
+
+## Pushbullet
+# Replace access_token with your actual value
+pushbullet://access_token
+
+## Gotify (Self-hosted notification server)
+# Replace server_url and app_token
+gotify://server_url/app_token
+
+## Ntfy.sh (Self-hosted or public)
+# Replace topic with your topic name
+json://ntfy.sh/your_topic
+
+## Matrix (Chat protocol)
+# Replace homeserver, room_id, and auth_token
+matrix://homeserver_url/room_id?token=auth_token
+
+## XMPP (Jabber)
+# Replace user, password, and server
+xmpp://user:password@server.com
+
+## Multiple Services in One URL String
+# Note: When sending to a tag, use this format in POST request
+# urls: ["discord://webhook_id/webhook_token", "tgram://bot_token/chat_id", "slack://token_a/token_b/token_c"]

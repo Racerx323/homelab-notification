@@ -1,0 +1,152 @@
+{
+  "api_examples": [
+    {
+      "name": "Send Simple Notification",
+      "method": "POST",
+      "endpoint": "/notify",
+      "description": "Send a notification to the default configuration",
+      "body": {
+        "title": "System Alert",
+        "body": "This is a test notification",
+        "type": "info"
+      },
+      "curl_command": "curl -X POST http://localhost:8000/notify -H 'Content-Type: application/json' -d '{\"title\": \"System Alert\", \"body\": \"This is a test notification\", \"type\": \"info\"}'"
+    },
+    {
+      "name": "Send to Tagged Group",
+      "method": "POST",
+      "endpoint": "/notify/{tag}",
+      "description": "Send notification to a specific tag/group",
+      "body": {
+        "title": "Critical Alert",
+        "body": "Server down",
+        "type": "failure"
+      },
+      "curl_command": "curl -X POST http://localhost:8000/notify/critical-alerts -H 'Content-Type: application/json' -d '{\"title\": \"Critical Alert\", \"body\": \"Server down\", \"type\": \"failure\"}'"
+    },
+    {
+      "name": "List All Configured URLs",
+      "method": "GET",
+      "endpoint": "/urls",
+      "description": "Get list of all configured notification URLs/tags",
+      "curl_command": "curl http://localhost:8000/urls"
+    },
+    {
+      "name": "Add New Notification URL",
+      "method": "POST",
+      "endpoint": "/add/{tag}",
+      "description": "Add notification URL(s) to a tag",
+      "body": {
+        "urls": [
+          "discord://webhook_id/webhook_token"
+        ]
+      },
+      "curl_command": "curl -X POST http://localhost:8000/add/alerts -H 'Content-Type: application/json' -d '{\"urls\": [\"discord://webhook_id/webhook_token\"]}'"
+    },
+    {
+      "name": "Get Tag Details",
+      "method": "GET",
+      "endpoint": "/details/{tag}",
+      "description": "Get details about a specific tag",
+      "curl_command": "curl http://localhost:8000/details/alerts"
+    },
+    {
+      "name": "Remove URL from Tag",
+      "method": "DELETE",
+      "endpoint": "/remove/{tag}/{url}",
+      "description": "Remove a notification URL from a tag",
+      "curl_command": "curl -X DELETE 'http://localhost:8000/remove/alerts/discord%3A%2F%2Fwebhook_id%2Fwebhook_token'"
+    },
+    {
+      "name": "Get Notification History",
+      "method": "GET",
+      "endpoint": "/history",
+      "description": "Get history of sent notifications",
+      "curl_command": "curl http://localhost:8000/history"
+    },
+    {
+      "name": "Purge Configuration",
+      "method": "DELETE",
+      "endpoint": "/urls",
+      "description": "Delete all stored configurations (WARNING: destructive)",
+      "curl_command": "curl -X DELETE http://localhost:8000/urls"
+    }
+  ],
+  "notification_types": [
+    {
+      "type": "info",
+      "description": "Information message (blue icon)"
+    },
+    {
+      "type": "success",
+      "description": "Successful action (green icon)"
+    },
+    {
+      "type": "warning",
+      "description": "Warning message (yellow icon)"
+    },
+    {
+      "type": "failure",
+      "description": "Error/failure message (red icon)"
+    }
+  ],
+  "examples": {
+    "discord": {
+      "description": "Send to Discord webhook",
+      "url_format": "discord://webhook_id/webhook_token",
+      "setup": "Create webhook in Discord server settings > Webhooks, copy ID and token"
+    },
+    "telegram": {
+      "description": "Send to Telegram chat",
+      "url_format": "tgram://bot_token/chat_id",
+      "setup": "1. Talk to @BotFather on Telegram to create bot (get token)\n2. Send message to @userinfobot to get your chat ID"
+    },
+    "slack": {
+      "description": "Send to Slack channel",
+      "url_format": "slack://token_a/token_b/token_c",
+      "setup": "Create Slack webhook from workspace settings"
+    },
+    "email_gmail": {
+      "description": "Send via Gmail",
+      "url_format": "mailsmtp://email:password@smtp.gmail.com:587/?from=email@gmail.com",
+      "setup": "Enable 'Less secure apps' or use App Password with 2FA"
+    },
+    "email_outlook": {
+      "description": "Send via Outlook",
+      "url_format": "mailsmtp://email:password@smtp.office365.com:587/?from=email@outlook.com",
+      "setup": "Use your Outlook/Office365 credentials"
+    },
+    "webhook": {
+      "description": "Send to custom webhook",
+      "url_format": "json://your-webhook-url",
+      "setup": "Any service that accepts HTTP POST with JSON payload"
+    }
+  },
+  "workflow_examples": [
+    {
+      "name": "System Monitoring Alert",
+      "description": "Send alert when disk is full",
+      "steps": [
+        "Add tag: curl -X POST http://localhost:8000/add/disk-alerts -d '{\"urls\": [\"discord://webhook/token\"]}'",
+        "From cron: curl -X POST http://localhost:8000/notify/disk-alerts -d '{\"title\": \"Disk Alert\", \"body\": \"95% full\", \"type\": \"failure\"}'"
+      ]
+    },
+    {
+      "name": "Backup Notifications",
+      "description": "Notify about backup completion",
+      "steps": [
+        "Set up tag for backup team",
+        "After backup completes, send success notification",
+        "If backup fails, send failure notification"
+      ]
+    },
+    {
+      "name": "Multi-Channel Notifications",
+      "description": "Send same message to multiple platforms",
+      "steps": [
+        "Add multiple URLs to same tag: Discord, Telegram, Email",
+        "Send once to tag, reaches all platforms"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,81 @@
+# Apprise API - Podman Compose Configuration
+# Usage: podman-compose -f podman-compose.yml up -d
+
+version: '3'
+
+services:
+  apprise-api:
+    # Official Apprise API Docker image from Docker Hub
+    image: caronc/apprise
+    
+    # Container name
+    container_name: apprise-api
+    
+    # Restart policy
+    restart_policy: always
+    restart_max_retries: 3
+    
+    # Port mappings
+    ports:
+      - "8000:8000"
+    
+    # Volume mounts
+    volumes:
+      # Persistent storage for configurations
+      - /var/lib/apprise:/apprise
+    
+    # Environment variables
+    environment:
+      APPRISE_DEBUG: "0"
+      # Uncomment for debug logging:
+      # APPRISE_DEBUG: "1"
+      
+      # Maximum upload size (bytes)
+      MAX_CONTENT_LENGTH: "2097152"  # 2MB
+      
+      # Uncomment for custom paths
+      # APPRISE_PLUGINS_PATH: "/apprise/plugins"
+      # APPRISE_UPLOAD_PATH: "/apprise/upload"
+    
+    # Logging
+    logging:
+      driver: journald
+      options:
+        tag: "apprise-api"
+    
+    # Resource limits (adjust for Raspberry Pi)
+    mem_limit: 512m
+    memswap_limit: 512m
+    cpus: '1.0'
+    
+    # Capabilities and security
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    read_only_rootfs: true
+    
+    # Healthcheck
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/notify"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    
+    # Network
+    networks:
+      - apprise-net
+    
+    # Additional runtime options
+    # sysctls:
+    #   - net.ipv4.ip_forward=1
+
+networks:
+  apprise-net:
+    driver: bridge
+
+# Optional: Define volumes if using named volumes instead of host paths
+# volumes:
+#   apprise-data:
+#     driver: local
