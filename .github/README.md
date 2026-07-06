@@ -17,13 +17,45 @@ The goal is to have a single source of truth for these configurations, making th
 
 Currently, this repository includes configurations for:
 
-* **[Mailgun](https://www.mailgun.com/)**: An email automation service.
-* **[SMTP2GO](https://www.smtp2go.com/)**: An SMTP provider for sending emails.
+* **[Apprise API](apprise-api/)**: A centralized REST API for sending notifications to 100+ notification services. Automated installation and deployment for Debian 12 on Raspberry Pi 5 with Podman. Supports rootless mode for enhanced security.
+* **[Mailgun](email/Mailgun/)**: An email automation service.
+* **[SMTP2GO](email/SMTP2GO/)**: An SMTP provider for sending emails.
 * _(More to come!)_
 
-## 🚀 Getting Started
+## � Project Structure
 
-To use these configurations, you can clone the repository and adapt the files to your specific needs. Most configurations will require you to input your own API keys, domain names, and other sensitive information.
+```text
+homelab-notification/
+├── apprise-api/              # Centralized notification API server
+│   ├── install-apprise-podman.sh
+│   ├── podman-compose.yml
+│   ├── README.md
+│   ├── ROOTLESS.md           # Guide for rootless Podman mode
+│   ├── scripts/              # Utility scripts
+│   └── examples/             # Usage examples
+├── email/
+│   ├── Mailgun/              # Mailgun configuration
+│   └── SMTP2GO/              # SMTP2GO configuration
+└── docs/
+```
+
+## 🚀 Quick Start
+
+### For Apprise API
+
+Apprise API provides a unified REST interface for sending notifications to 100+ services. To get started:
+
+```bash
+cd apprise-api
+sudo ./install-apprise-podman.sh --systemd
+curl http://localhost:8000/docs  # View API documentation
+```
+
+See [apprise-api/README.md](apprise-api/README.md) for detailed setup and configuration.
+
+### For Email Services
+
+Configure your preferred email service (Mailgun or SMTP2GO) in the `email/` directory.
 
 <!-- **Example Usage:**
 
