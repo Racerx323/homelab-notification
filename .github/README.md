@@ -21,7 +21,7 @@ Currently, this repository includes configurations for:
 * **[Mailgun](../email/Mailgun/)**: An email automation service.
 * **[SMTP2GO](../email/SMTP2GO/)**: An SMTP provider for sending emails.
 
-## � Project Structure
+## 📁 Project Structure
 
 ```text
 homelab-notification/
