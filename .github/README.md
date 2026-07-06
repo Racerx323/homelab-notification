@@ -25,17 +25,33 @@ Currently, this repository includes configurations for:
 
 ```text
 homelab-notification/
-├── apprise-api/              # Centralized notification API server
-│   ├── install-apprise-podman.sh
-│   ├── podman-compose.yml
-│   ├── README.md
-│   ├── ROOTLESS.md           # Guide for rootless Podman mode
-│   ├── scripts/              # Utility scripts
-│   └── examples/             # Usage examples
+├── apprise-api/                       # Centralized notification API server
+│   ├── install-apprise-podman.sh      # Main installation script
+│   ├── podman-compose.yml             # Docker Compose alternative deployment
+│   ├── .gitignore                     # Git ignore patterns
+│   ├── README.md                      # Project overview
+│   ├── INSTALLATION.md                # Step-by-step installation guide
+│   ├── CONFIGURATION.md               # Configuration & environment variables
+│   ├── TROUBLESHOOTING.md             # Common issues & solutions
+│   ├── ROOTLESS.md                    # Rootless Podman mode guide
+│   ├── QUICK_START.md                 # 30-second quickstart
+│   ├── INDEX.md                       # Documentation index
+│   ├── UPDATES.md                     # Migration & changelog
+│   ├── scripts/                       # Utility scripts
+│   │   ├── logs.sh                    # Container log viewer
+│   │   ├── health-check.sh            # API health monitoring
+│   │   └── backup-config.sh           # Backup & restore tool
+│   ├── examples/                      # Usage examples
+│   │   ├── send-notification.sh       # API usage example
+│   │   ├── notification-urls.txt      # Supported service URL patterns
+│   │   └── api-examples.json          # REST endpoint documentation
+│   ├── docs/                          # Additional documentation
+│   ├── configs/                       # Configuration templates
+│   └── tests/                         # Test files
 ├── email/
-│   ├── Mailgun/              # Mailgun configuration
-│   └── SMTP2GO/              # SMTP2GO configuration
-└── docs/
+│   ├── Mailgun/                       # Mailgun SMTP configuration
+│   └── SMTP2GO/                       # SMTP2GO provider configuration
+└── docs/                              # Repository documentation
 ```
 
 ## 🚀 Quick Start
