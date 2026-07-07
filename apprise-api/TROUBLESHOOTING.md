@@ -207,6 +207,37 @@ df /var/lib/apprise
 
 Required: ~1GB free disk space, ~256MB available RAM
 
+### Installer Fails and Cleans Up
+
+#### Symptom
+
+```text
+[ERROR] Installation failed with exit code ...
+[INFO] Removed ... created by this run
+```
+
+#### Explanation
+
+The installer has a failure trap. If an Apprise API or Mailrise install fails partway through, it removes artifacts created by that run:
+
+- Newly-created `apprise-api` or `mailrise` containers
+- Newly-created systemd service files
+- Generated Mailrise config/example files
+- Newly-created `notify-network`
+- Empty data/config directories created by the failed run
+
+Existing Mailrise configs, existing service files, and existing Podman networks are preserved. If a service file existed before the run, the installer backs it up before writing and restores it during cleanup.
+
+#### Next Steps
+
+```bash
+# Review the original failure above the cleanup logs
+podman ps -a
+podman network ls
+sudo systemctl status apprise-api
+sudo systemctl status mailrise
+```
+
 **Solution 3: Clean and Restart**
 
 ```bash
@@ -901,6 +932,15 @@ configs:
 ```
 
 The URL must use the container name `apprise-api` and container port `8000`, not the Raspberry Pi hostname or a custom host port.
+
+If `/etc/mailrise.conf` or `~/.config/mailrise/mailrise.conf` already existed before running the installer, the installer does not overwrite it. Check the generated example file instead:
+
+```bash
+sudo cat /etc/mailrise.conf.example
+
+# Rootless
+cat ~/.config/mailrise/mailrise.conf.example
+```
 
 ### SMTP Client Cannot Connect to Mailrise
 

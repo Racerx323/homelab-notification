@@ -166,6 +166,7 @@ sudo ./install-apprise-podman.sh --systemd
 5. Creates systemd service files if requested
 6. Configures persistent storage at `/var/lib/apprise`
 7. Creates `/etc/mailrise.conf` and `notify-network` when Mailrise is enabled
+8. Preserves an existing Mailrise config and writes the generated starter config to `mailrise.conf.example`
 
 ### Method 2: Podman Compose
 

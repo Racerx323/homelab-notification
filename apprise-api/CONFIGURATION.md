@@ -74,6 +74,7 @@ When Mailrise is enabled:
 
 - **System Mailrise Config**: `/etc/mailrise.conf`
 - **Rootless Mailrise Config**: `~/.config/mailrise/mailrise.conf`
+- **Existing Config Behavior**: existing configs are preserved; generated starter configs are written to `mailrise.conf.example`
 - **Container Path**: `/etc/mailrise.conf`
 
 ### Directory Structure
@@ -287,7 +288,7 @@ Rootless:
 
 ### Generated Mailrise Configuration
 
-System-wide installs write `/etc/mailrise.conf`. Rootless installs write `~/.config/mailrise/mailrise.conf`.
+System-wide installs write `/etc/mailrise.conf`. Rootless installs write `~/.config/mailrise/mailrise.conf`. If the config already exists, the installer leaves it unchanged and writes the generated starter config as `mailrise.conf.example` in the same directory.
 
 Default generated config:
 

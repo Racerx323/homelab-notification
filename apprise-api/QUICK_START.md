@@ -169,7 +169,7 @@ After installing with `--mailrise`, point SMTP-only devices or applications at:
 - Port: `8025`
 - Recipient: `notify@mailrise.xyz`
 
-Mailrise uses `/etc/mailrise.conf` in system mode or `~/.config/mailrise/mailrise.conf` in rootless mode. The default generated config sends mail for `notify` to the Apprise API container:
+Mailrise uses `/etc/mailrise.conf` in system mode or `~/.config/mailrise/mailrise.conf` in rootless mode. If that file already exists, the installer leaves it unchanged and writes the starter config to `mailrise.conf.example` in the same directory. The default generated config sends mail for `notify` to the Apprise API container:
 
 ```yaml
 configs:

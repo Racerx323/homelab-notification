@@ -90,6 +90,7 @@ This adds:
 - Mailrise container named `mailrise`
 - User-level service at `~/.config/systemd/user/mailrise.service`
 - Mailrise config at `~/.config/mailrise/mailrise.conf`
+- Existing Mailrise configs are preserved; starter configs are written to `~/.config/mailrise/mailrise.conf.example`
 - Shared Podman network named `notify-network`
 - Apprise URL in Mailrise config: `apprise://apprise-api:8000/your_apprise_config_key`
 

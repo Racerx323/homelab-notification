@@ -152,9 +152,11 @@ This will:
 - Pull the official **caronc/apprise** Docker image
 - Pull the official **docker.io/yoryan/mailrise:latest** Docker image
 - Create a shared Podman network named `notify-network`
-- Create `/etc/mailrise.conf`
+- Create `/etc/mailrise.conf`, or create `/etc/mailrise.conf.example` if a config already exists
 - Create systemd services for both `apprise-api` and `mailrise`
 - Configure Mailrise to send through `apprise://apprise-api:8000/your_apprise_config_key`
+
+If installation fails partway through, the installer attempts to clean up artifacts it created during that run, including new containers, new service files, generated Mailrise config/example files, and a newly-created `notify-network`. Existing Mailrise configs, existing service files, and existing Podman networks are preserved.
 
 Use `systemctl`, not `sysctl`, to manage services:
 
