@@ -37,6 +37,7 @@ Welcome! This package contains everything needed to deploy Apprise API on Debian
   - Environment variables
   - Persistent storage configuration
   - Network setup and firewall
+  - Mailrise SMTP relay configuration
   - SSL/TLS setup with reverse proxies (Nginx, Caddy)
   - Resource limits and tuning
   - Notification service integration
@@ -52,6 +53,12 @@ Welcome! This package contains everything needed to deploy Apprise API on Debian
   - Performance optimization
   - Getting help
 
+- **[ROOTLESS.md](ROOTLESS.md)**
+  - Rootless Podman installation
+  - User-level systemd services
+  - Rootless Mailrise setup
+  - Lingering and remote deployment
+
 ---
 
 ## 🚀 Installation Script
@@ -63,12 +70,19 @@ Welcome! This package contains everything needed to deploy Apprise API on Debian
   - Podman dependency checking
   - Container image management
   - Systemd service integration
+  - Optional Mailrise SMTP relay
   - Health verification
 
 **Usage:**
 
 ```bash
 sudo ./install-apprise-podman.sh --systemd
+
+# With Mailrise
+sudo ./install-apprise-podman.sh --systemd --mailrise --mailrise-apprise-key your_apprise_config_key
+
+# Rootless
+./install-apprise-podman.sh --rootless --systemd
 ```
 
 ---
@@ -195,6 +209,13 @@ cd /path/to/apprise-api
 sudo ./install-apprise-podman.sh --systemd
 ```
 
+### Installation with Mailrise SMTP Relay
+
+```bash
+cd /path/to/apprise-api
+sudo ./install-apprise-podman.sh --systemd --mailrise --mailrise-apprise-key your_apprise_config_key
+```
+
 ### Send First Notification (1 minute)
 
 ```bash
@@ -218,9 +239,11 @@ curl -X POST http://localhost:8000/notify \
 ```bash
 # View status
 podman ps | grep apprise
+podman ps | grep mailrise
 
 # View logs
 ./scripts/logs.sh --follow
+podman logs -f mailrise
 
 # Health check
 ./scripts/health-check.sh
@@ -240,6 +263,13 @@ sudo systemctl stop apprise-api
 sudo systemctl restart apprise-api
 sudo systemctl status apprise-api
 sudo journalctl -u apprise-api -f
+
+# Mailrise, if installed
+sudo systemctl start mailrise
+sudo systemctl stop mailrise
+sudo systemctl restart mailrise
+sudo systemctl status mailrise
+sudo journalctl -u mailrise -f
 ```
 
 ---
@@ -275,6 +305,8 @@ apprise-api/
 ✅ **Automated Installation** - Single script handles everything  
 ✅ **Podman 4.3.1 Compatible** - Tested on Raspberry Pi 5  
 ✅ **Systemd Integration** - Auto-start on boot  
+✅ **Rootless Mode** - User-level services without sudo  
+✅ **Mailrise SMTP Relay** - Optional email-to-Apprise bridge  
 ✅ **100+ Services** - Discord, Telegram, Slack, Email, etc.  
 ✅ **Persistent Storage** - Configuration survives restarts  
 ✅ **Health Monitoring** - Built-in health checks  
@@ -291,6 +323,7 @@ apprise-api/
 - **Apprise Wiki:** <https://github.com/caronc/apprise/wiki>
 - **Supported Notifiers:** <https://github.com/caronc/apprise/wiki/Apprise_Notification_Services>
 - **Apprise API:** <https://github.com/caronc/apprise-api>
+- **Mailrise:** <https://github.com/YoRyan/mailrise>
 - **Podman Docs:** <https://podman.io/docs>
 
 ---
@@ -300,6 +333,7 @@ apprise-api/
 - Start with **[QUICK_START.md](QUICK_START.md)** for immediate results
 - Use **[health-check.sh](scripts/health-check.sh)** to verify setup
 - Enable **--systemd** for production deployments
+- Add **--mailrise** when SMTP-only devices need to send notifications
 - Regular backups: `./scripts/backup-config.sh /backups`
 - Check logs when issues occur: `./scripts/logs.sh --follow`
 - Monitor performance: `./scripts/health-check.sh --monitor`
@@ -321,6 +355,7 @@ apprise-api/
 After installation, verify:
 
 - [ ] Container running: `podman ps | grep apprise`
+- [ ] Mailrise running, if installed: `podman ps | grep mailrise`
 - [ ] API responsive: `curl http://localhost:8000`
 - [ ] Health check: `./scripts/health-check.sh`
 - [ ] Can access web UI: `http://localhost:8000/docs`

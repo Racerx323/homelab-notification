@@ -7,6 +7,7 @@ Complete reference for configuring Apprise API after installation.
 - [Environment Variables](#environment-variables)
 - [Persistent Data Storage](#persistent-data-storage)
 - [Network Configuration](#network-configuration)
+- [Mailrise SMTP Relay](#mailrise-smtp-relay)
 - [SSL/TLS Setup](#ssltls-setup)
 - [Advanced Configuration](#advanced-configuration)
 - [Notification Service Integration](#notification-service-integration)
@@ -67,6 +68,13 @@ podman run -d \
 - **Mount Point**: `/var/lib/apprise`
 - **Container Path**: `/apprise`
 - **Permissions**: `755` (rwxr-xr-x)
+- **Rootless Mount Point**: `~/.apprise`
+
+When Mailrise is enabled:
+
+- **System Mailrise Config**: `/etc/mailrise.conf`
+- **Rootless Mailrise Config**: `~/.config/mailrise/mailrise.conf`
+- **Container Path**: `/etc/mailrise.conf`
 
 ### Directory Structure
 
@@ -246,6 +254,102 @@ Change API port:
     ```text
     curl http://localhost:9000/notify
     ```
+
+### Shared Podman Network for Mailrise
+
+When the installer runs with `--mailrise`, it creates a Podman network named `notify-network`:
+
+```bash
+podman network inspect notify-network
+```
+
+Both containers join this network so Mailrise can call Apprise API by container name:
+
+```text
+apprise://apprise-api:8000/your_apprise_config_key
+```
+
+The Apprise API container always listens on port `8000` inside the container. The `--port` option only changes the host port mapping.
+
+## Mailrise SMTP Relay
+
+Mailrise is optional and installed with:
+
+```bash
+sudo ./install-apprise-podman.sh --systemd --mailrise --mailrise-apprise-key your_apprise_config_key
+```
+
+Rootless:
+
+```bash
+./install-apprise-podman.sh --rootless --systemd --mailrise --mailrise-apprise-key your_apprise_config_key
+```
+
+### Generated Mailrise Configuration
+
+System-wide installs write `/etc/mailrise.conf`. Rootless installs write `~/.config/mailrise/mailrise.conf`.
+
+Default generated config:
+
+```yaml
+configs:
+  notify:
+    urls:
+      - apprise://apprise-api:8000/your_apprise_config_key
+```
+
+Send email to `notify@mailrise.xyz` to use this config. You can edit the config name or add more configs later:
+
+```yaml
+configs:
+  notify:
+    urls:
+      - apprise://apprise-api:8000/your_apprise_config_key
+  critical:
+    urls:
+      - apprise://apprise-api:8000/critical-alerts
+```
+
+Restart Mailrise after editing:
+
+```bash
+sudo systemctl restart mailrise
+
+# Rootless
+systemctl --user restart mailrise
+```
+
+### Mailrise Ports
+
+Mailrise listens on container port `8025`. Use `--mailrise-port` to change the host port:
+
+```bash
+sudo ./install-apprise-podman.sh --systemd --mailrise --mailrise-port 2525 --mailrise-apprise-key your_apprise_config_key
+```
+
+Point SMTP clients at:
+
+- Host: `<pi-ip>`
+- Port: `8025` or your `--mailrise-port`
+- Recipient: `notify@mailrise.xyz`
+
+### Mailrise Service Management
+
+```bash
+sudo systemctl enable mailrise
+sudo systemctl start mailrise
+sudo systemctl status mailrise
+sudo journalctl -u mailrise -f
+```
+
+Rootless:
+
+```bash
+systemctl --user enable mailrise
+systemctl --user start mailrise
+systemctl --user status mailrise
+journalctl --user -u mailrise -f
+```
 
 ## SSL/TLS Setup
 

@@ -6,7 +6,7 @@ Automated installation and deployment of [Apprise API](https://github.com/caronc
 
 **Apprise** is a powerful notification library that supports 100+ notification services. **Apprise API** is a web service that exposes Apprise functionality via REST API, allowing you to send notifications to any service through HTTP requests.
 
-This package provides an automated installer for the **official Apprise API Docker container** running on **Podman** (Debian 12, Raspberry Pi 5).
+This package provides an automated installer for the **official Apprise API Docker container** running on **Podman** (Debian 12, Raspberry Pi 5). It can also install **Mailrise**, an SMTP-to-Apprise relay, so devices and applications that only know how to send email can trigger Apprise notifications.
 
 ### Key Points
 
@@ -16,6 +16,7 @@ This package provides an automated installer for the **official Apprise API Dock
 - ✅ **Debian 12 Ready**: Optimized for Raspberry Pi 5
 - ✅ **Automated Setup**: Single script handles full installation
 - ✅ **Systemd Integration**: Auto-start on boot with service management
+- ✅ **Optional Mailrise Relay**: SMTP notifications through `docker.io/yoryan/mailrise:latest`
 
 ### Use Cases
 
@@ -57,6 +58,9 @@ sudo ./install-apprise-podman.sh --systemd
 
 # Custom API port
 sudo ./install-apprise-podman.sh --systemd --port 8080
+
+# Apprise API plus Mailrise SMTP relay
+sudo ./install-apprise-podman.sh --systemd --mailrise --mailrise-apprise-key your_apprise_config_key
 ```
 
 **Rootless mode (no sudo needed):**
@@ -70,12 +74,17 @@ sudo ./install-apprise-podman.sh --systemd --port 8080
 
 # Custom port in rootless mode
 ./install-apprise-podman.sh --rootless --systemd --port 8000
+
+# Rootless Apprise API plus Mailrise
+./install-apprise-podman.sh --rootless --systemd --mailrise --mailrise-apprise-key your_apprise_config_key
 ```
 
 The script will:
 
 - Download the official **caronc/apprise** Docker image from Docker Hub
+- Download **docker.io/yoryan/mailrise:latest** when `--mailrise` is enabled
 - Configure it to run with Podman on Debian 12
+- Create the `notify-network` Podman network when Mailrise is enabled
 - Set up systemd service if requested (user-level for rootless, system-level for sudo)
 - Make it available at <http://localhost:8000>
 
@@ -96,6 +105,10 @@ podman logs -f apprise-api
 
 # Test API
 curl http://localhost:8000/notify
+
+# If Mailrise was installed
+podman ps | grep mailrise
+podman logs -f mailrise
 ```
 
 ### 4. Access Apprise API
@@ -109,12 +122,14 @@ curl http://localhost:8000/notify
 ```text
 apprise-api/
 ├── install-apprise-podman.sh      # Automated installation script
-├── Dockerfile                       # Container image definition (ARM64 optimized)
-├── apprise-wrapper.py               # Flask-based REST API wrapper
 ├── README.md                        # This file
+├── QUICK_START.md                   # Fast setup guide
 ├── INSTALLATION.md                  # Detailed installation guide
 ├── CONFIGURATION.md                 # Configuration reference
+├── ROOTLESS.md                      # Rootless Podman guide
 ├── TROUBLESHOOTING.md              # Common issues and solutions
+├── INDEX.md                         # Documentation index
+├── UPDATES.md                       # Change summary
 ├── podman-compose.yml              # Podman compose configuration
 ├── examples/                        # Example configurations and scripts
 │   ├── send-notification.sh         # Example notification script
@@ -147,8 +162,10 @@ sudo ./install-apprise-podman.sh --systemd
 1. Verifies Podman installation
 2. Installs dependencies (curl, wget, ca-certificates)
 3. Pulls `caronc/apprise` Docker image
-4. Creates systemd service if requested
-5. Configures persistent storage at `/var/lib/apprise`
+4. Optionally pulls `docker.io/yoryan/mailrise:latest`
+5. Creates systemd service files if requested
+6. Configures persistent storage at `/var/lib/apprise`
+7. Creates `/etc/mailrise.conf` and `notify-network` when Mailrise is enabled
 
 ### Method 2: Podman Compose
 
@@ -175,6 +192,28 @@ podman run -d \
   -v /var/lib/apprise:/apprise \
   --restart=always \
   caronc/apprise
+```
+
+With Mailrise:
+
+```bash
+podman network create notify-network
+
+podman run -d \
+  --name apprise-api \
+  -p 8000:8000 \
+  -v /var/lib/apprise:/apprise \
+  --network notify-network \
+  --restart=always \
+  caronc/apprise
+
+podman run -d \
+  --name mailrise \
+  -p 8025:8025 \
+  -v /etc/mailrise.conf:/etc/mailrise.conf:ro \
+  --network notify-network \
+  --restart=always \
+  docker.io/yoryan/mailrise:latest
 ```
 
 ## How It Works
@@ -210,13 +249,20 @@ The installer uses the official `caronc/apprise` image:
 
 ```bash
 # If using systemd
-systemctl start apprise-api
-systemctl stop apprise-api
-systemctl restart apprise-api
+sudo systemctl start apprise-api
+sudo systemctl stop apprise-api
+sudo systemctl restart apprise-api
+
+# If Mailrise is installed
+sudo systemctl start mailrise
+sudo systemctl stop mailrise
+sudo systemctl restart mailrise
 
 # If using direct podman
 podman start apprise-api
 podman stop apprise-api
+podman start mailrise
+podman stop mailrise
 ```
 
 ### View Logs
@@ -229,7 +275,11 @@ podman logs -f apprise-api
 podman logs --tail 50 apprise-api
 
 # If using systemd
-journalctl -u apprise-api -f
+sudo journalctl -u apprise-api -f
+
+# Mailrise logs
+podman logs -f mailrise
+sudo journalctl -u mailrise -f
 ```
 
 ### Send a Test Notification
@@ -267,8 +317,8 @@ See [CONFIGURATION.md](CONFIGURATION.md) for:
 - Environment variables
 - Persistent storage options
 - Network configuration
+- Mailrise SMTP relay configuration
 - SSL/TLS setup
-- Custom image building
 
 ## Troubleshooting
 
@@ -279,6 +329,7 @@ See [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for solutions to:
 - Memory/resource constraints
 - Port conflicts
 - Notification delivery failures
+- Mailrise SMTP relay issues
 
 ## API Examples
 
@@ -391,17 +442,27 @@ podman rm apprise-api
 ./install-apprise-podman.sh  # or systemctl start apprise-api
 ```
 
+If Mailrise is installed:
+
+```bash
+podman pull docker.io/yoryan/mailrise:latest
+sudo systemctl restart apprise-api
+sudo systemctl restart mailrise
+```
+
 ## Documentation Files
 
 - **[INSTALLATION.md](INSTALLATION.md)** - Detailed step-by-step installation
 - **[CONFIGURATION.md](CONFIGURATION.md)** - Configuration options and advanced setup
 - **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)** - Common issues and solutions
+- **[ROOTLESS.md](ROOTLESS.md)** - Rootless Podman setup
 
 ## External Resources
 
 - [Apprise GitHub Repository](https://github.com/caronc/apprise)
 - [Apprise Supported Notifiers](https://github.com/caronc/apprise/wiki/Apprise_Notification_Services)
 - [Apprise API Documentation](https://github.com/caronc/apprise-api)
+- [Mailrise GitHub Repository](https://github.com/YoRyan/mailrise)
 - [Podman Documentation](https://podman.io/docs)
 
 ## License

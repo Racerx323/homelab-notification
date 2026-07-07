@@ -8,6 +8,7 @@ Common issues, diagnostics, and solutions for Apprise API on Raspberry Pi 5.
 - [Network and Connectivity](#network-and-connectivity)
 - [API Issues](#api-issues)
 - [Notification Delivery](#notification-delivery)
+- [Mailrise Issues](#mailrise-issues)
 - [Performance Issues](#performance-issues)
 - [Storage and Backup Issues](#storage-and-backup-issues)
 - [System Integration Issues](#system-integration-issues)
@@ -65,6 +66,9 @@ cat /etc/containers/registries.conf
 
 # Try pull again
 podman pull caronc/apprise
+
+# Mailrise uses a fully qualified image name
+podman pull docker.io/yoryan/mailrise:latest
 ```
 
 **Solution 3: Use Fully Qualified Image Names**
@@ -184,12 +188,9 @@ podman rm apprise-api
 
 # Restart with current image
 sudo ./install-apprise-podman.sh --systemd
-```
 
 # Or re-run installation script
-
 sudo ./install-apprise-podman.sh
-
 ```
 
 **Solution 2: Check Resource Constraints**
@@ -296,17 +297,22 @@ systemctl start apprise-api returns error
 systemctl status apprise-api shows failed
 ```
 
+Use `systemctl`, not `sysctl`, for services. `sysctl enable mailrise` is a kernel-parameter command and will fail with `/proc/sys/...` errors.
+
 #### Diagnosis
 
 ```bash
 # Check service status details
 sudo systemctl status -l apprise-api
+sudo systemctl status -l mailrise
 
 # View detailed journal logs
 sudo journalctl -u apprise-api -n 50 -p err
+sudo journalctl -u mailrise -n 50 -p err
 
 # Validate systemd file syntax
 sudo systemd-analyze verify /etc/systemd/system/apprise-api.service
+sudo systemd-analyze verify /etc/systemd/system/mailrise.service
 ```
 
 #### Solutions
@@ -324,6 +330,8 @@ sudo ./install-apprise-podman.sh --systemd
 # Enable and start
 sudo systemctl enable apprise-api
 sudo systemctl start apprise-api
+sudo systemctl enable mailrise
+sudo systemctl start mailrise
 ```
 
 **Solution 2: Fix Common Syntax Errors**
@@ -808,6 +816,120 @@ podman rm apprise-api
 sudo ./install-apprise-podman.sh --systemd
 ```
 
+## Mailrise Issues
+
+### Mailrise Service Does Not Exist
+
+#### Symptom
+
+```bash
+sudo systemctl status mailrise
+# Unit mailrise.service could not be found.
+```
+
+#### Solution
+
+Install with Mailrise enabled:
+
+```bash
+sudo ./install-apprise-podman.sh --systemd --mailrise --mailrise-apprise-key your_apprise_config_key
+sudo systemctl enable mailrise
+sudo systemctl start mailrise
+```
+
+Rootless:
+
+```bash
+./install-apprise-podman.sh --rootless --systemd --mailrise --mailrise-apprise-key your_apprise_config_key
+systemctl --user enable mailrise
+systemctl --user start mailrise
+```
+
+### Mailrise Cannot Reach Apprise API
+
+#### Symptom
+
+Mailrise starts, but email does not trigger notifications.
+
+#### Diagnosis
+
+```bash
+# Check both containers are running
+podman ps
+
+# Check shared network
+podman network inspect notify-network
+podman ps --format '{{.Names}} {{.Networks}}'
+
+# Check Mailrise logs
+podman logs --tail 100 mailrise
+sudo journalctl -u mailrise -n 100
+```
+
+#### Solutions
+
+**Solution 1: Re-run the Installer with Mailrise Enabled**
+
+```bash
+sudo ./install-apprise-podman.sh --systemd --mailrise --mailrise-apprise-key your_apprise_config_key
+sudo systemctl daemon-reload
+sudo systemctl restart apprise-api
+sudo systemctl restart mailrise
+```
+
+**Solution 2: Verify Mailrise Config**
+
+System-wide config:
+
+```bash
+sudo cat /etc/mailrise.conf
+```
+
+Rootless config:
+
+```bash
+cat ~/.config/mailrise/mailrise.conf
+```
+
+Expected shape:
+
+```yaml
+configs:
+  notify:
+    urls:
+      - apprise://apprise-api:8000/your_apprise_config_key
+```
+
+The URL must use the container name `apprise-api` and container port `8000`, not the Raspberry Pi hostname or a custom host port.
+
+### SMTP Client Cannot Connect to Mailrise
+
+#### Diagnosis
+
+```bash
+# Default Mailrise host port is 8025
+sudo ss -tuln | grep 8025
+podman port mailrise
+
+# Check service/container status
+sudo systemctl status mailrise
+podman ps | grep mailrise
+```
+
+#### Solutions
+
+Use the port configured with `--mailrise-port`. The default is `8025`:
+
+```bash
+sudo ./install-apprise-podman.sh --systemd --mailrise --mailrise-port 2525 --mailrise-apprise-key your_apprise_config_key
+```
+
+Point SMTP clients at:
+
+- Host: `<pi-ip>`
+- Port: `8025` or your custom `--mailrise-port`
+- Recipient: `notify@mailrise.xyz`
+
 ## Performance Issues
 
 ### Slow API Response Times
@@ -1125,9 +1247,11 @@ podman info
 # Container status
 podman ps -a
 podman inspect apprise-api
+podman inspect mailrise
 
 # Recent logs
 podman logs --tail 100 apprise-api
+podman logs --tail 100 mailrise
 
 # System resources
 free -h
@@ -1136,7 +1260,13 @@ podman stats apprise-api
 
 # Service status (if using systemd)
 sudo systemctl status apprise-api
+sudo systemctl status mailrise
 sudo journalctl -u apprise-api -n 50
+sudo journalctl -u mailrise -n 50
+
+# Mailrise config and network, if installed
+sudo cat /etc/mailrise.conf
+podman network inspect notify-network
 ```
 
 ### Report Issues

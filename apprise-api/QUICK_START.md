@@ -21,7 +21,15 @@ sudo ./install-apprise-podman.sh
 
 # Option 2: Production (with systemd auto-start) ⭐ RECOMMENDED
 sudo ./install-apprise-podman.sh --systemd
+
+# Option 3: Production with Mailrise SMTP relay
+sudo ./install-apprise-podman.sh --systemd --mailrise --mailrise-apprise-key your_apprise_config_key
+
+# Rootless production with Mailrise
+./install-apprise-podman.sh --rootless --systemd --mailrise --mailrise-apprise-key your_apprise_config_key
 ```
+
+Mailrise listens on SMTP port `8025` by default and sends to `apprise://apprise-api:8000/your_apprise_config_key` inside the shared `notify-network` Podman network.
 
 ## Verification (1 minute)
 
@@ -36,7 +44,11 @@ curl http://localhost:8000/
 podman logs apprise-api
 
 # Check systemd status (if installed with --systemd)
-systemctl status apprise-api
+sudo systemctl status apprise-api
+
+# If Mailrise was installed
+sudo systemctl status mailrise
+podman logs mailrise
 ```
 
 ## First Notification (2 minutes)
@@ -143,6 +155,27 @@ podman logs -f apprise-api
 
 # Systemd logs
 sudo journalctl -u apprise-api -f
+
+# Mailrise logs, if installed
+podman logs -f mailrise
+sudo journalctl -u mailrise -f
+```
+
+### Use Mailrise SMTP Relay
+
+After installing with `--mailrise`, point SMTP-only devices or applications at:
+
+- Host: `<pi-ip>`
+- Port: `8025`
+- Recipient: `notify@mailrise.xyz`
+
+Mailrise uses `/etc/mailrise.conf` in system mode or `~/.config/mailrise/mailrise.conf` in rootless mode. The default generated config sends mail for `notify` to the Apprise API container:
+
+```yaml
+configs:
+  notify:
+    urls:
+      - apprise://apprise-api:8000/your_apprise_config_key
 ```
 
 ### Monitor Health
@@ -214,6 +247,7 @@ Then access from other machines: `http://<pi-ip>:8000`
 - **[README.md](README.md)** - Full overview and features
 - **[INSTALLATION.md](INSTALLATION.md)** - Detailed installation steps
 - **[CONFIGURATION.md](CONFIGURATION.md)** - Advanced configuration
+- **[ROOTLESS.md](ROOTLESS.md)** - Rootless Podman setup
 - **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)** - Common issues and fixes
 - **[examples/](examples/)** - API examples and scripts
 - **[scripts/](scripts/)** - Utility scripts

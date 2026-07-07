@@ -22,13 +22,19 @@ sudo apt-get install -y podman ca-certificates
 # 2. Run the installer in rootless mode
 ./install-apprise-podman.sh --rootless --systemd
 
-# 3. Enable user service to run on login
+# 3. Or install Apprise API plus Mailrise SMTP relay
+./install-apprise-podman.sh --rootless --systemd --mailrise --mailrise-apprise-key your_apprise_config_key
+
+# 4. Enable user services to keep running after logout
 loginctl enable-linger
 
-# 4. Start the service
+# 5. Start the Apprise API service
 systemctl --user start apprise-api
 
-# 5. Access the API
+# If Mailrise was installed
+systemctl --user start mailrise
+
+# 6. Access the API
 curl http://localhost:8000
 ```
 
@@ -73,6 +79,22 @@ This adds:
 ./install-apprise-podman.sh --rootless --port 9000
 ```
 
+### Rootless with Mailrise
+
+```bash
+./install-apprise-podman.sh --rootless --systemd --mailrise --mailrise-apprise-key your_apprise_config_key
+```
+
+This adds:
+
+- Mailrise container named `mailrise`
+- User-level service at `~/.config/systemd/user/mailrise.service`
+- Mailrise config at `~/.config/mailrise/mailrise.conf`
+- Shared Podman network named `notify-network`
+- Apprise URL in Mailrise config: `apprise://apprise-api:8000/your_apprise_config_key`
+
+Mailrise listens on SMTP port `8025` by default. Use `--mailrise-port PORT` to publish a different host port.
+
 ## User Systemd Service Management
 
 ### Enable Service (Start on Login)
@@ -80,6 +102,10 @@ This adds:
 ```bash
 systemctl --user enable apprise-api
 systemctl --user start apprise-api
+
+# If Mailrise is installed
+systemctl --user enable mailrise
+systemctl --user start mailrise
 ```
 
 ### Start/Stop Service
@@ -93,6 +119,11 @@ systemctl --user stop apprise-api
 
 # Check status
 systemctl --user status apprise-api
+
+# Mailrise
+systemctl --user start mailrise
+systemctl --user stop mailrise
+systemctl --user status mailrise
 ```
 
 ### View Logs
@@ -106,12 +137,16 @@ journalctl --user -u apprise-api -n 50
 
 # Today's logs
 journalctl --user -u apprise-api --since today
+
+# Mailrise logs
+journalctl --user -u mailrise -f
 ```
 
 ### Restart Service
 
 ```bash
 systemctl --user restart apprise-api
+systemctl --user restart mailrise
 ```
 
 ## Lingering (Keep Services Running When Logged Out)
@@ -137,12 +172,14 @@ With lingering enabled, the service runs in the background regardless of login s
 
 ```bash
 podman start apprise-api
+podman start mailrise
 ```
 
 ### Stop Container Directly
 
 ```bash
 podman stop apprise-api
+podman stop mailrise
 ```
 
 ### View Running Containers
@@ -155,12 +192,14 @@ podman ps
 
 ```bash
 podman logs -f apprise-api
+podman logs -f mailrise
 ```
 
 ### Remove Container
 
 ```bash
 podman rm -f apprise-api
+podman rm -f mailrise
 ```
 
 ## Data Storage
@@ -169,18 +208,21 @@ Rootless mode stores persistent data in your home directory:
 
 ```bash
 ~/.apprise/          # Configuration and data directory
+~/.config/mailrise/  # Mailrise config when --mailrise is enabled
 ```
 
 ### Backup Configuration
 
 ```bash
 tar -czf apprise-backup.tar.gz ~/.apprise/
+tar -czf mailrise-backup.tar.gz ~/.config/mailrise/
 ```
 
 ### Restore Configuration
 
 ```bash
 tar -xzf apprise-backup.tar.gz -C ~/
+tar -xzf mailrise-backup.tar.gz -C ~/
 ```
 
 ## Accessing the API
@@ -213,7 +255,8 @@ curl http://<raspberry-pi-ip>:8000
 
 | Feature | Rootless | Rootful (sudo) |
 | --------- | ---------- | ----------- |
-| Data Directory | `~/.apprise` | `/var/lib/apprise` |
+| Apprise Data Directory | `~/.apprise` | `/var/lib/apprise` |
+| Mailrise Config | `~/.config/mailrise/mailrise.conf` | `/etc/mailrise.conf` |
 | Systemd | User (`--user`) | System-wide |
 | Privileges | User account | Root/sudo required |
 | Port Binding | User ports only | All ports |
@@ -254,6 +297,24 @@ Enable lingering:
 loginctl enable-linger
 ```
 
+### Mailrise cannot reach Apprise API
+
+Check that both containers are on the shared network:
+
+```bash
+podman network inspect notify-network
+podman ps --format '{{.Names}} {{.Networks}}'
+```
+
+Re-run the installer with Mailrise enabled if the network or service was created before Mailrise support:
+
+```bash
+./install-apprise-podman.sh --rootless --systemd --mailrise --mailrise-apprise-key your_apprise_config_key
+systemctl --user daemon-reload
+systemctl --user restart apprise-api
+systemctl --user restart mailrise
+```
+
 ### Cannot access API from other machines
 
 Rootless containers can't bind to ports below 1024. For remote access, use a port above 1024:
@@ -290,6 +351,14 @@ ssh pi@10.1.3.83 << 'EOF'
   systemctl --user start apprise-api
 EOF
 
+# With Mailrise
+ssh pi@10.1.3.83 << 'EOF'
+  ~/install-apprise-podman.sh --rootless --systemd --mailrise --mailrise-apprise-key your_apprise_config_key
+  loginctl enable-linger
+  systemctl --user start apprise-api
+  systemctl --user start mailrise
+EOF
+
 # 3. Verify
 ssh pi@10.1.3.83 'curl http://localhost:8000'
 ```
@@ -298,7 +367,9 @@ ssh pi@10.1.3.83 'curl http://localhost:8000'
 
 ```bash
 ssh pi@10.1.3.83 'systemctl --user status apprise-api'
+ssh pi@10.1.3.83 'systemctl --user status mailrise'
 ssh pi@10.1.3.83 'journalctl --user -u apprise-api -n 20'
+ssh pi@10.1.3.83 'journalctl --user -u mailrise -n 20'
 ```
 
 ## Switching Between Modes
@@ -310,6 +381,8 @@ ssh pi@10.1.3.83 'journalctl --user -u apprise-api -n 20'
    ```bash
    systemctl --user stop apprise-api
    systemctl --user disable apprise-api
+   systemctl --user stop mailrise
+   systemctl --user disable mailrise
    ```
 
 2. Run rootful installer:
@@ -325,6 +398,8 @@ ssh pi@10.1.3.83 'journalctl --user -u apprise-api -n 20'
    ```bash
    sudo systemctl stop apprise-api
    sudo systemctl disable apprise-api
+   sudo systemctl stop mailrise
+   sudo systemctl disable mailrise
    ```
 
 2. Remove rootful service file (as root):

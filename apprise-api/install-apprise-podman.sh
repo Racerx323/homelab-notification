@@ -18,6 +18,11 @@
 #   --rootless          Run rootless (no sudo needed, uses ~/.apprise)
 #   --systemd           Create a systemd service for auto-start
 #   --port PORT         Set API port (default: 8000)
+#   --mailrise          Install and configure Mailrise SMTP relay
+#   --mailrise-port PORT
+#                       Set Mailrise SMTP port (default: 8025)
+#   --mailrise-apprise-key KEY
+#                       Set Apprise API config key for Mailrise (default: your_apprise_config_key)
 #
 
 set -euo pipefail
@@ -33,9 +38,16 @@ APPRISE_PORT="${APPRISE_PORT:-8000}"
 APPRISE_CONTAINER_NAME="apprise-api"
 APPRISE_IMAGE="caronc/apprise"
 APPRISE_DATA_DIR="/var/lib/apprise"
-SYSTEMD_SERVICE_FILE="/etc/systemd/system/apprise-api.service"
+MAILRISE_CONTAINER_NAME="mailrise"
+MAILRISE_IMAGE="docker.io/yoryan/mailrise:latest"
+MAILRISE_CONFIG_FILE="/etc/mailrise.conf"
+MAILRISE_PORT="${MAILRISE_PORT:-8025}"
+MAILRISE_CONFIG_NAME="${MAILRISE_CONFIG_NAME:-notify}"
+MAILRISE_APPRISE_CONFIG_KEY="${MAILRISE_APPRISE_CONFIG_KEY:-your_apprise_config_key}"
+NOTIFY_NETWORK_NAME="notify-network"
 ENABLE_SYSTEMD=false
 ROOTLESS_MODE=false
+ENABLE_MAILRISE=false
 
 # Functions
 log_info() {
@@ -51,7 +63,7 @@ log_error() {
 }
 
 show_help() {
-    sed -n '3,23p' "$0" | sed 's/^# //'
+    sed -n '3,26p' "$0" | sed 's/^# \{0,1\}//'
 }
 
 check_privileges() {
@@ -74,7 +86,8 @@ check_podman() {
         apt-get install -y podman
     fi
     
-    local podman_version=$(podman --version | grep -oP '(?<=version )[0-9]+\.[0-9]+\.[0-9]+')
+    local podman_version
+    podman_version=$(podman --version | grep -oP '(?<=version )[0-9]+\.[0-9]+\.[0-9]+')
     log_info "Podman version: $podman_version"
 }
 
@@ -106,13 +119,8 @@ configure_registries() {
 registries = ['docker.io', 'quay.io']
 EOF
     
-    if [[ $? -eq 0 ]]; then
-        log_info "Registry search configuration added successfully"
-        return 0
-    else
-        log_error "Failed to configure registry search"
-        return 1
-    fi
+    log_info "Registry search configuration added successfully"
+    return 0
 }
 
 install_dependencies() {
@@ -143,6 +151,37 @@ setup_apprise_directory() {
     chmod 755 "$APPRISE_DATA_DIR"
 }
 
+setup_mailrise_config() {
+    local config_dir
+
+    if [[ $ROOTLESS_MODE == true ]]; then
+        MAILRISE_CONFIG_FILE="$HOME/.config/mailrise/mailrise.conf"
+    fi
+
+    config_dir="$(dirname "$MAILRISE_CONFIG_FILE")"
+    log_info "Creating Mailrise config: $MAILRISE_CONFIG_FILE"
+    mkdir -p "$config_dir"
+
+    cat > "$MAILRISE_CONFIG_FILE" << EOF
+configs:
+  $MAILRISE_CONFIG_NAME:
+    urls:
+      - apprise://$APPRISE_CONTAINER_NAME:8000/$MAILRISE_APPRISE_CONFIG_KEY
+EOF
+
+    chmod 644 "$MAILRISE_CONFIG_FILE"
+}
+
+create_notify_network() {
+    if podman network exists "$NOTIFY_NETWORK_NAME" 2>/dev/null; then
+        log_info "Podman network already exists: $NOTIFY_NETWORK_NAME"
+        return 0
+    fi
+
+    log_info "Creating Podman network: $NOTIFY_NETWORK_NAME"
+    podman network create "$NOTIFY_NETWORK_NAME"
+}
+
 pull_apprise_image() {
     log_info "Pulling official Apprise API Docker image from Docker Hub..."
     log_info "Image: $APPRISE_IMAGE"
@@ -155,6 +194,21 @@ pull_apprise_image() {
         log_error "Failed to pull Docker image: $APPRISE_IMAGE"
         log_info "Try manual pull for diagnostics:"
         log_info "  podman pull caronc/apprise"
+        return 1
+    fi
+}
+
+pull_mailrise_image() {
+    log_info "Pulling Mailrise Docker image from Docker Hub..."
+    log_info "Image: $MAILRISE_IMAGE"
+
+    if podman pull "$MAILRISE_IMAGE"; then
+        log_info "Successfully pulled: $MAILRISE_IMAGE"
+        return 0
+    else
+        log_error "Failed to pull Docker image: $MAILRISE_IMAGE"
+        log_info "Try manual pull for diagnostics:"
+        log_info "  podman pull $MAILRISE_IMAGE"
         return 1
     fi
 }
@@ -180,26 +234,31 @@ stop_existing_container() {
     fi
 }
 
+stop_existing_mailrise_container() {
+    if podman container exists "$MAILRISE_CONTAINER_NAME" 2>/dev/null; then
+        log_info "Stopping existing container: $MAILRISE_CONTAINER_NAME"
+        podman stop "$MAILRISE_CONTAINER_NAME" || true
+        podman rm "$MAILRISE_CONTAINER_NAME" || true
+    fi
+}
+
 create_systemd_service() {
     local service_file
     local service_dir
     local enable_cmd
     local start_cmd
-    local stop_cmd
     
     if [[ $ROOTLESS_MODE == true ]]; then
         service_dir="$HOME/.config/systemd/user"
         service_file="$service_dir/apprise-api.service"
         enable_cmd="systemctl --user enable apprise-api"
         start_cmd="systemctl --user start apprise-api"
-        stop_cmd="systemctl --user stop apprise-api"
         log_info "Creating user-level systemd service: $service_file"
     else
         service_dir="/etc/systemd/system"
         service_file="$service_dir/apprise-api.service"
         enable_cmd="systemctl enable apprise-api"
         start_cmd="systemctl start apprise-api"
-        stop_cmd="systemctl stop apprise-api"
         log_info "Creating system-level systemd service: $service_file"
     fi
     
@@ -211,7 +270,8 @@ create_systemd_service() {
         wanted_by="default.target"
     fi
     
-    cat > "$service_file" << EOF
+    {
+        cat << EOF
 [Unit]
 Description=Apprise API Service
 After=network.target
@@ -229,6 +289,11 @@ ExecStart=/usr/bin/podman run --rm \\
     --name $APPRISE_CONTAINER_NAME \\
     -p $APPRISE_PORT:8000 \\
     -v $APPRISE_DATA_DIR:/apprise \\
+EOF
+        if [[ $ENABLE_MAILRISE == true ]]; then
+            echo "    --network $NOTIFY_NETWORK_NAME \\"
+        fi
+        cat << EOF
     --log-driver journald \\
     $APPRISE_IMAGE
 
@@ -237,6 +302,7 @@ ExecStop=/usr/bin/podman stop -t 10 $APPRISE_CONTAINER_NAME
 [Install]
 WantedBy=$wanted_by
 EOF
+    } > "$service_file"
     
     chmod 644 "$service_file"
     
@@ -252,13 +318,87 @@ EOF
     log_info "Start with: $start_cmd"
 }
 
+create_mailrise_systemd_service() {
+    local service_file
+    local service_dir
+    local enable_cmd
+    local start_cmd
+    local wanted_by="multi-user.target"
+
+    if [[ $ROOTLESS_MODE == true ]]; then
+        service_dir="$HOME/.config/systemd/user"
+        service_file="$service_dir/mailrise.service"
+        enable_cmd="systemctl --user enable mailrise"
+        start_cmd="systemctl --user start mailrise"
+        wanted_by="default.target"
+        log_info "Creating user-level Mailrise systemd service: $service_file"
+    else
+        service_dir="/etc/systemd/system"
+        service_file="$service_dir/mailrise.service"
+        enable_cmd="systemctl enable mailrise"
+        start_cmd="systemctl start mailrise"
+        log_info "Creating system-level Mailrise systemd service: $service_file"
+    fi
+
+    mkdir -p "$service_dir"
+
+    cat > "$service_file" << EOF
+[Unit]
+Description=Mailrise SMTP notification relay
+After=network.target apprise-api.service
+Wants=apprise-api.service
+$(if [[ $ROOTLESS_MODE == false ]]; then echo "Wants=podman.service"; fi)
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=10
+StartLimitInterval=60s
+StartLimitBurst=3
+
+# Run the container with podman
+ExecStart=/usr/bin/podman run --rm \\
+    --name $MAILRISE_CONTAINER_NAME \\
+    -p $MAILRISE_PORT:8025 \\
+    -v $MAILRISE_CONFIG_FILE:/etc/mailrise.conf:ro \\
+    --network $NOTIFY_NETWORK_NAME \\
+    --log-driver journald \\
+    $MAILRISE_IMAGE
+
+ExecStop=/usr/bin/podman stop -t 10 $MAILRISE_CONTAINER_NAME
+
+[Install]
+WantedBy=$wanted_by
+EOF
+
+    chmod 644 "$service_file"
+
+    if [[ $ROOTLESS_MODE == true ]]; then
+        systemctl --user daemon-reload
+        log_info "User-level Mailrise systemd service created successfully"
+    else
+        systemctl daemon-reload
+        log_info "System-level Mailrise systemd service created successfully"
+    fi
+
+    log_info "Enable with: $enable_cmd"
+    log_info "Start with: $start_cmd"
+}
+
 run_container_direct() {
+    local network_args=()
+
     log_info "Running Apprise API container..."
+
+    if [[ $ENABLE_MAILRISE == true ]]; then
+        network_args=(--network "$NOTIFY_NETWORK_NAME")
+    fi
     
     podman run -d \
         --name "$APPRISE_CONTAINER_NAME" \
         -p "$APPRISE_PORT:8000" \
         -v "$APPRISE_DATA_DIR:/apprise" \
+        "${network_args[@]}" \
         --restart=always \
         --log-driver=journald \
         "$APPRISE_IMAGE"
@@ -267,13 +407,29 @@ run_container_direct() {
     log_info "Apprise API is running on http://localhost:$APPRISE_PORT"
 }
 
+run_mailrise_container_direct() {
+    log_info "Running Mailrise container..."
+
+    podman run -d \
+        --name "$MAILRISE_CONTAINER_NAME" \
+        -p "$MAILRISE_PORT:8025" \
+        -v "$MAILRISE_CONFIG_FILE:/etc/mailrise.conf:ro" \
+        --network "$NOTIFY_NETWORK_NAME" \
+        --restart=always \
+        --log-driver=journald \
+        "$MAILRISE_IMAGE"
+
+    log_info "Mailrise SMTP relay is running on port $MAILRISE_PORT"
+}
+
 verify_installation() {
     log_info "Verifying installation..."
     
     sleep 3
     
     if podman container exists "$APPRISE_CONTAINER_NAME" 2>/dev/null; then
-        local status=$(podman container inspect "$APPRISE_CONTAINER_NAME" --format='{{.State.Status}}')
+        local status
+        status=$(podman container inspect "$APPRISE_CONTAINER_NAME" --format='{{.State.Status}}')
         if [[ "$status" == "running" ]]; then
             log_info "Container is running"
             
@@ -289,6 +445,18 @@ verify_installation() {
             exit 1
         fi
     fi
+
+    if [[ $ENABLE_MAILRISE == true ]] && podman container exists "$MAILRISE_CONTAINER_NAME" 2>/dev/null; then
+        local mailrise_status
+        mailrise_status=$(podman container inspect "$MAILRISE_CONTAINER_NAME" --format='{{.State.Status}}')
+        if [[ "$mailrise_status" == "running" ]]; then
+            log_info "Mailrise container is running"
+        else
+            log_error "Mailrise container is not running. Status: $mailrise_status"
+            log_error "Logs: $(podman logs $MAILRISE_CONTAINER_NAME 2>&1 | tail -n 10)"
+            exit 1
+        fi
+    fi
 }
 
 show_info() {
@@ -301,6 +469,16 @@ API Port:           $APPRISE_PORT
 Data Directory:     $APPRISE_DATA_DIR
 Image:              $APPRISE_IMAGE
 Mode:               $(if [[ $ROOTLESS_MODE == true ]]; then echo "Rootless (user)"; else echo "Rootful (system)"; fi)
+Mailrise:           $(if [[ $ENABLE_MAILRISE == true ]]; then echo "Enabled"; else echo "Disabled"; fi)
+$(if [[ $ENABLE_MAILRISE == true ]]; then
+cat << MAILRISE_SUMMARY
+Mailrise Image:     $MAILRISE_IMAGE
+Mailrise SMTP Port: $MAILRISE_PORT
+Mailrise Config:    $MAILRISE_CONFIG_FILE
+Podman Network:     $NOTIFY_NETWORK_NAME
+Apprise URL:        apprise://$APPRISE_CONTAINER_NAME:8000/$MAILRISE_APPRISE_CONFIG_KEY
+MAILRISE_SUMMARY
+fi)
 
 ${GREEN}Useful Commands:${NC}
 
@@ -315,6 +493,20 @@ Start container:
 
 Remove container:
   podman rm -f $APPRISE_CONTAINER_NAME
+
+$(if [[ $ENABLE_MAILRISE == true ]]; then
+cat << MAILRISE_COMMANDS
+View Mailrise logs:
+  podman logs -f $MAILRISE_CONTAINER_NAME
+
+Stop Mailrise:
+  podman stop $MAILRISE_CONTAINER_NAME
+
+Start Mailrise:
+  podman start $MAILRISE_CONTAINER_NAME
+
+MAILRISE_COMMANDS
+fi)
 
 Access API:
   http://localhost:$APPRISE_PORT
@@ -346,6 +538,19 @@ Stop service:
 
 View service logs:
   journalctl --user -u apprise-api -f
+$(if [[ $ENABLE_MAILRISE == true ]]; then
+cat << ROOTLESS_MAILRISE_SYSTEMD
+
+Enable Mailrise auto-start:
+  systemctl --user enable mailrise
+
+Start Mailrise service:
+  systemctl --user start mailrise
+
+View Mailrise service logs:
+  journalctl --user -u mailrise -f
+ROOTLESS_MAILRISE_SYSTEMD
+fi)
 
 Enable lingering (run services even when not logged in):
   loginctl enable-linger
@@ -367,6 +572,19 @@ Stop service:
 
 View service logs:
   journalctl -u apprise-api -f
+$(if [[ $ENABLE_MAILRISE == true ]]; then
+cat << ROOTFUL_MAILRISE_SYSTEMD
+
+Enable Mailrise auto-start:
+  systemctl enable mailrise
+
+Start Mailrise service:
+  systemctl start mailrise
+
+View Mailrise service logs:
+  journalctl -u mailrise -f
+ROOTFUL_MAILRISE_SYSTEMD
+fi)
 ROOTFUL
 fi)
 
@@ -391,11 +609,39 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         --port)
+            if [[ $# -lt 2 ]]; then
+                log_error "--port requires a port number"
+                exit 1
+            fi
             if [[ ! "$2" =~ ^[0-9]+$ ]] || (( $2 < 1 || $2 > 65535 )); then
                 log_error "Invalid port: $2 (must be 1-65535)"
                 exit 1
             fi
             APPRISE_PORT="$2"
+            shift 2
+            ;;
+        --mailrise)
+            ENABLE_MAILRISE=true
+            shift
+            ;;
+        --mailrise-port)
+            if [[ $# -lt 2 ]]; then
+                log_error "--mailrise-port requires a port number"
+                exit 1
+            fi
+            if [[ ! "$2" =~ ^[0-9]+$ ]] || (( $2 < 1 || $2 > 65535 )); then
+                log_error "Invalid Mailrise port: $2 (must be 1-65535)"
+                exit 1
+            fi
+            MAILRISE_PORT="$2"
+            shift 2
+            ;;
+        --mailrise-apprise-key)
+            if [[ $# -lt 2 || -z "$2" ]]; then
+                log_error "--mailrise-apprise-key requires a config key"
+                exit 1
+            fi
+            MAILRISE_APPRISE_CONFIG_KEY="$2"
             shift 2
             ;;
         *)
@@ -416,6 +662,10 @@ main() {
     fi
     
     log_info "Using official Apprise API Docker image: $APPRISE_IMAGE"
+    if [[ $ENABLE_MAILRISE == true ]]; then
+        log_info "Mailrise installation enabled"
+        log_info "Using Mailrise Docker image: $MAILRISE_IMAGE"
+    fi
     log_info "Podman version 4.3.1+"
     
     check_privileges
@@ -434,6 +684,10 @@ main() {
     fi
     
     setup_apprise_directory
+    if [[ $ENABLE_MAILRISE == true ]]; then
+        setup_mailrise_config
+        create_notify_network
+    fi
     
     # Pull the official Docker image
     if pull_apprise_image; then
@@ -442,16 +696,46 @@ main() {
         log_error "Failed to pull the official Apprise API Docker image"
         exit 1
     fi
+    if [[ $ENABLE_MAILRISE == true ]]; then
+        if pull_mailrise_image; then
+            log_info "Mailrise Docker image loaded"
+        else
+            log_error "Failed to pull the Mailrise Docker image"
+            exit 1
+        fi
+    fi
     
     stop_existing_container
+    if [[ $ENABLE_MAILRISE == true ]]; then
+        stop_existing_mailrise_container
+    fi
     
     if [[ $ENABLE_SYSTEMD == true ]]; then
         create_systemd_service
+        if [[ $ENABLE_MAILRISE == true ]]; then
+            create_mailrise_systemd_service
+        fi
         log_info "Systemd service created. Enable and start with:"
-        log_info "  systemctl enable apprise-api"
-        log_info "  systemctl start apprise-api"
+        if [[ $ROOTLESS_MODE == true ]]; then
+            log_info "  systemctl --user enable apprise-api"
+            log_info "  systemctl --user start apprise-api"
+            if [[ $ENABLE_MAILRISE == true ]]; then
+                log_info "  systemctl --user enable mailrise"
+                log_info "  systemctl --user start mailrise"
+            fi
+        else
+            log_info "  systemctl enable apprise-api"
+            log_info "  systemctl start apprise-api"
+            if [[ $ENABLE_MAILRISE == true ]]; then
+                log_info "  systemctl enable mailrise"
+                log_info "  systemctl start mailrise"
+            fi
+        fi
     else
         run_container_direct
+        if [[ $ENABLE_MAILRISE == true ]]; then
+            run_mailrise_container_direct
+        fi
         verify_installation
     fi
     

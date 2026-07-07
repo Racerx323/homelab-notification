@@ -137,8 +137,50 @@ This will:
 # Custom port
 sudo ./install-apprise-podman.sh --systemd --port 8080
 
-# Skip SSL verification (not recommended for production)
-sudo ./install-apprise-podman.sh --no-verify
+# Mailrise SMTP relay on a custom host port
+sudo ./install-apprise-podman.sh --systemd --mailrise --mailrise-port 2525 --mailrise-apprise-key your_apprise_config_key
+```
+
+#### Option D: Apprise API with Mailrise SMTP Relay
+
+```bash
+sudo ./install-apprise-podman.sh --systemd --mailrise --mailrise-apprise-key your_apprise_config_key
+```
+
+This will:
+
+- Pull the official **caronc/apprise** Docker image
+- Pull the official **docker.io/yoryan/mailrise:latest** Docker image
+- Create a shared Podman network named `notify-network`
+- Create `/etc/mailrise.conf`
+- Create systemd services for both `apprise-api` and `mailrise`
+- Configure Mailrise to send through `apprise://apprise-api:8000/your_apprise_config_key`
+
+Use `systemctl`, not `sysctl`, to manage services:
+
+```bash
+# Enable auto-start on reboot
+sudo systemctl enable apprise-api
+sudo systemctl enable mailrise
+
+# Start the services
+sudo systemctl start apprise-api
+sudo systemctl start mailrise
+
+# Check service status
+sudo systemctl status apprise-api
+sudo systemctl status mailrise
+```
+
+For rootless installs, use user-level systemd instead:
+
+```bash
+./install-apprise-podman.sh --rootless --systemd --mailrise --mailrise-apprise-key your_apprise_config_key
+
+systemctl --user enable apprise-api
+systemctl --user enable mailrise
+systemctl --user start apprise-api
+systemctl --user start mailrise
 ```
 
 ### Step 5: Verify Installation
@@ -151,6 +193,9 @@ podman ps
 
 # Look for apprise-api in the output
 # Expected: apprise-api running
+
+# If Mailrise was installed
+podman ps | grep mailrise
 ```
 
 #### Test API Connectivity
@@ -170,6 +215,9 @@ podman logs -f apprise-api
 
 # Last 20 lines
 podman logs --tail 20 apprise-api
+
+# If Mailrise was installed
+podman logs --tail 20 mailrise
 ```
 
 ### Step 6: Enable Systemd Service (if using --systemd)
@@ -178,15 +226,23 @@ podman logs --tail 20 apprise-api
 # Enable auto-start on reboot
 sudo systemctl enable apprise-api
 
+# If Mailrise was installed
+sudo systemctl enable mailrise
+
 # Verify it's enabled
 sudo systemctl is-enabled apprise-api
+sudo systemctl is-enabled mailrise
 # Expected output: enabled
 
 # Start the service
 sudo systemctl start apprise-api
 
+# If Mailrise was installed
+sudo systemctl start mailrise
+
 # Check service status
 sudo systemctl status apprise-api
+sudo systemctl status mailrise
 ```
 
 ### Step 7: Configure Network Access
@@ -224,11 +280,16 @@ sudo systemctl status apprise-api
 # View service logs
 sudo journalctl -u apprise-api -f
 
+# View Mailrise service logs
+sudo journalctl -u mailrise -f
+
 # View last 50 lines of logs
 sudo journalctl -u apprise-api -n 50
+sudo journalctl -u mailrise -n 50
 
 # Disable auto-start
 sudo systemctl disable apprise-api
+sudo systemctl disable mailrise
 ```
 
 ## Post-Installation Configuration
@@ -402,16 +463,21 @@ To completely remove Apprise API:
 # Stop service if enabled
 sudo systemctl stop apprise-api
 sudo systemctl disable apprise-api
+sudo systemctl stop mailrise
+sudo systemctl disable mailrise
 
 # Remove container
 podman stop apprise-api
 podman rm apprise-api
+podman stop mailrise
+podman rm mailrise
 
 # Remove systemd service file
 sudo rm /etc/systemd/system/apprise-api.service
+sudo rm /etc/systemd/system/mailrise.service
 sudo systemctl daemon-reload
 
-# Configuration in /var/lib/apprise is preserved
+# Configuration in /var/lib/apprise and /etc/mailrise.conf is preserved
 ```
 
 ### Option 2: Complete Removal
@@ -420,16 +486,24 @@ sudo systemctl daemon-reload
 # Remove container
 podman stop apprise-api
 podman rm apprise-api
+podman stop mailrise
+podman rm mailrise
 
 # Remove image
 podman rmi caronc/apprise
+podman rmi docker.io/yoryan/mailrise:latest
 
 # Remove configuration
 sudo rm -rf /var/lib/apprise
+sudo rm -f /etc/mailrise.conf
 
 # Remove systemd service
 sudo rm /etc/systemd/system/apprise-api.service
+sudo rm /etc/systemd/system/mailrise.service
 sudo systemctl daemon-reload
+
+# Remove shared network if no other containers use it
+podman network rm notify-network
 ```
 
 ## Next Steps
