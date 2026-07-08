@@ -8,6 +8,7 @@
 # Options:
 #   --verbose           Show detailed information
 #   --monitor           Monitor status continuously
+#   --mailrise          Include Mailrise checks
 #   --help              Show this help
 #
 
@@ -15,8 +16,12 @@ set -euo pipefail
 
 # Configuration
 APPRISE_URL="${APPRISE_URL:-http://localhost:8000}"
+APPRISE_DATA_DIR="${APPRISE_DATA_DIR:-}"
+MAILRISE_PORT="${MAILRISE_PORT:-8025}"
+MAILRISE_ACCOUNT="${MAILRISE_ACCOUNT:-notify@mailrise.xyz}"
 VERBOSE=false
 MONITOR=false
+CHECK_MAILRISE=false
 
 # Color output
 GREEN='\033[0;32m'
@@ -52,6 +57,7 @@ Usage: $0 [OPTIONS]
 Options:
     --verbose           Show detailed information
     --monitor           Monitor status continuously (updates every 10s)
+    --mailrise          Include Mailrise container, port, and config checks
     --help              Show this help
 
 Examples:
@@ -63,7 +69,28 @@ Examples:
 
     # Continuous monitoring
     $0 --monitor
+
+    # Include Mailrise checks
+    $0 --mailrise
 EOF
+}
+
+detect_apprise_data_dir() {
+    if [[ -n "$APPRISE_DATA_DIR" ]]; then
+        return 0
+    fi
+
+    if [[ -d /var/lib/apprise ]]; then
+        APPRISE_DATA_DIR="/var/lib/apprise"
+    elif [[ -d "$HOME/.apprise" ]]; then
+        APPRISE_DATA_DIR="$HOME/.apprise"
+    else
+        APPRISE_DATA_DIR="/var/lib/apprise"
+    fi
+}
+
+smtp_port_check() {
+    timeout 3 bash -c "</dev/tcp/127.0.0.1/$MAILRISE_PORT" > /dev/null 2>&1
 }
 
 # Parse arguments
@@ -77,6 +104,10 @@ while [[ $# -gt 0 ]]; do
             MONITOR=true
             shift
             ;;
+        --mailrise)
+            CHECK_MAILRISE=true
+            shift
+            ;;
         -h|--help)
             show_help
             exit 0
@@ -88,6 +119,8 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+detect_apprise_data_dir
 
 # Health check function
 run_health_check() {
@@ -130,8 +163,9 @@ run_health_check() {
     echo -n "API Response Time: "
     local response_time=$(curl -s -m 10 -w "%{time_total}" -o /dev/null "$APPRISE_URL" 2>/dev/null)
     if [[ -n "$response_time" ]]; then
-        response_time_ms=$(echo "$response_time * 1000" | bc)
-        if (( $(echo "$response_time < 1" | bc -l) )); then
+        local response_time_ms
+        response_time_ms=$(awk -v seconds="$response_time" 'BEGIN { printf "%.0f", seconds * 1000 }')
+        if awk -v seconds="$response_time" 'BEGIN { exit !(seconds < 1) }'; then
             log_info "${response_time_ms}ms"
         else
             log_warn "${response_time_ms}ms (slow)"
@@ -152,15 +186,15 @@ run_health_check() {
     
     # Check 5: Storage
     echo -n "Storage: "
-    if [[ -d /var/lib/apprise ]]; then
-        local available=$(df /var/lib/apprise | tail -1 | awk '{print $4}')
-        if [[ $available -gt 104857600 ]]; then  # > 100MB free
-            log_info "OK ($(df -h /var/lib/apprise | tail -1 | awk '{print $4}') free)"
+    if [[ -d "$APPRISE_DATA_DIR" ]]; then
+        local available=$(df -k "$APPRISE_DATA_DIR" | awk 'NR == 2 {print $4}')
+        if [[ $available -gt 102400 ]]; then  # > 100MB free
+            log_info "OK ($(df -h "$APPRISE_DATA_DIR" | awk 'NR == 2 {print $4}') free at $APPRISE_DATA_DIR)"
         else
-            log_warn "Low space ($(df -h /var/lib/apprise | tail -1 | awk '{print $4}') free)"
+            log_warn "Low space ($(df -h "$APPRISE_DATA_DIR" | awk 'NR == 2 {print $4}') free at $APPRISE_DATA_DIR)"
         fi
     else
-        log_error "Storage not found"
+        log_error "Storage not found: $APPRISE_DATA_DIR"
         all_ok=false
     fi
     
@@ -185,6 +219,60 @@ run_health_check() {
             all_ok=false
         fi
     fi
+
+    if systemctl --user is-enabled apprise-api 2>/dev/null; then
+        echo -n "User Systemd Service: "
+        if systemctl --user is-active apprise-api > /dev/null 2>&1; then
+            log_info "Active"
+        else
+            log_error "Inactive"
+            all_ok=false
+        fi
+    fi
+
+    if [[ "$CHECK_MAILRISE" == true ]]; then
+        echo -n "Mailrise Container: "
+        if podman container exists mailrise 2>/dev/null; then
+            local mailrise_status=$(podman container inspect mailrise --format='{{.State.Status}}' 2>/dev/null)
+            if [[ "$mailrise_status" == "running" ]]; then
+                log_info "Running"
+            else
+                log_error "Not running ($mailrise_status)"
+                all_ok=false
+            fi
+        else
+            log_error "Container not found"
+            all_ok=false
+        fi
+
+        echo -n "Mailrise SMTP Port: "
+        if smtp_port_check; then
+            log_info "Open (port $MAILRISE_PORT, default account $MAILRISE_ACCOUNT)"
+        else
+            log_error "Cannot connect to port $MAILRISE_PORT"
+            all_ok=false
+        fi
+
+        if systemctl is-enabled mailrise 2>/dev/null; then
+            echo -n "Mailrise Systemd Service: "
+            if systemctl is-active mailrise > /dev/null 2>&1; then
+                log_info "Active"
+            else
+                log_error "Inactive"
+                all_ok=false
+            fi
+        fi
+
+        if systemctl --user is-enabled mailrise 2>/dev/null; then
+            echo -n "Mailrise User Systemd Service: "
+            if systemctl --user is-active mailrise > /dev/null 2>&1; then
+                log_info "Active"
+            else
+                log_error "Inactive"
+                all_ok=false
+            fi
+        fi
+    fi
     
     # Detailed Information
     if [[ "$VERBOSE" == true ]]; then
@@ -196,6 +284,16 @@ run_health_check() {
             echo ""
             echo -e "${BLUE}Container Details:${NC}"
             podman inspect apprise-api --format='
+  ID: {{.ID}}
+  Created: {{.Created}}
+  Status: {{.State.Status}}
+  Restart Count: {{.RestartCount}}' 2>/dev/null || true
+        fi
+
+        if [[ "$CHECK_MAILRISE" == true ]] && podman container exists mailrise 2>/dev/null; then
+            echo ""
+            echo -e "${BLUE}Mailrise Details:${NC}"
+            podman inspect mailrise --format='
   ID: {{.ID}}
   Created: {{.Created}}
   Status: {{.State.Status}}

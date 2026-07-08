@@ -178,6 +178,19 @@ configs:
       - apprise://apprise-api:8000/your_apprise_config_key
 ```
 
+Test the relay from the Pi with curl:
+
+```bash
+printf 'Subject: Mailrise curl test\n\nHello from curl via Mailrise\n' > /tmp/mailrise-test.eml
+
+curl -v smtp://127.0.0.1:8025 \
+  --mail-from test@localhost \
+  --mail-rcpt notify@mailrise.xyz \
+  --upload-file /tmp/mailrise-test.eml
+```
+
+Successful SMTP delivery ends with `250 OK`. If your config key is a full address, such as `notify@localhost`, use that exact address for `--mail-rcpt`.
+
 ### Monitor Health
 
 ```bash

@@ -6,7 +6,7 @@ version: '3'
 services:
   apprise-api:
     # Official Apprise API Docker image from Docker Hub
-    image: caronc/apprise
+    image: docker.io/caronc/apprise:latest
     
     # Container name
     container_name: apprise-api
@@ -21,21 +21,19 @@ services:
     
     # Volume mounts
     volumes:
-      # Persistent storage for configurations
-      - /var/lib/apprise:/apprise
+      # Persistent storage for configuration, plugins, and attachments
+      - /var/lib/apprise/config:/config
+      - /var/lib/apprise/plugin:/plugin
+      - /var/lib/apprise/attach:/attach
     
     # Environment variables
     environment:
-      APPRISE_DEBUG: "0"
-      # Uncomment for debug logging:
-      # APPRISE_DEBUG: "1"
-      
-      # Maximum upload size (bytes)
-      MAX_CONTENT_LENGTH: "2097152"  # 2MB
-      
-      # Uncomment for custom paths
-      # APPRISE_PLUGINS_PATH: "/apprise/plugins"
-      # APPRISE_UPLOAD_PATH: "/apprise/upload"
+      APPRISE_STORAGE_DIR: "/config"
+      APPRISE_STORAGE_MODE: "auto"
+      APPRISE_STATEFUL_MODE: "simple"
+      APPRISE_WORKER_COUNT: "1"
+      APPRISE_ADMIN: "y"
+      APPRISE_INTERPRET_EMOJIS: "yes"
     
     # Logging
     logging:

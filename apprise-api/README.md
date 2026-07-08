@@ -10,7 +10,7 @@ This package provides an automated installer for the **official Apprise API Dock
 
 ### Key Points
 
-- ✅ **Uses Official Docker Image**: `caronc/apprise` from Docker Hub
+- ✅ **Uses Official Docker Image**: `docker.io/caronc/apprise:latest` from Docker Hub
 - ✅ **Podman Compatible**: Podman can run Docker containers natively
 - ✅ **Rootless Mode**: Run without sudo using Podman's rootless container support
 - ✅ **Debian 12 Ready**: Optimized for Raspberry Pi 5
@@ -81,7 +81,7 @@ sudo ./install-apprise-podman.sh --systemd --mailrise --mailrise-apprise-key you
 
 The script will:
 
-- Download the official **caronc/apprise** Docker image from Docker Hub
+- Download the official **docker.io/caronc/apprise:latest** Docker image from Docker Hub
 - Download **docker.io/yoryan/mailrise:latest** when `--mailrise` is enabled
 - Configure it to run with Podman on Debian 12
 - Create the `notify-network` Podman network when Mailrise is enabled
@@ -161,7 +161,7 @@ sudo ./install-apprise-podman.sh --systemd
 
 1. Verifies Podman installation
 2. Installs dependencies (curl, wget, ca-certificates)
-3. Pulls `caronc/apprise` Docker image
+3. Pulls `docker.io/caronc/apprise:latest`
 4. Optionally pulls `docker.io/yoryan/mailrise:latest`
 5. Creates systemd service files if requested
 6. Configures persistent storage at `/var/lib/apprise`
@@ -184,29 +184,47 @@ podman-compose -f podman-compose.yml up -d
 
 ```bash
 # Pull official Docker image from Docker Hub
-podman pull caronc/apprise
+podman pull docker.io/caronc/apprise:latest
 
 # Run container
+sudo mkdir -p /var/lib/apprise/{config,plugin,attach}
 podman run -d \
   --name apprise-api \
+  --user 1000:1000 \
+  --read-only \
+  --security-opt no-new-privileges=true \
+  --cap-drop ALL \
+  --tmpfs /tmp \
   -p 8000:8000 \
-  -v /var/lib/apprise:/apprise \
+  -e APPRISE_STORAGE_DIR=/config \
+  -v /var/lib/apprise/config:/config \
+  -v /var/lib/apprise/plugin:/plugin \
+  -v /var/lib/apprise/attach:/attach \
   --restart=always \
-  caronc/apprise
+  docker.io/caronc/apprise:latest
 ```
 
 With Mailrise:
 
 ```bash
 podman network create notify-network
+sudo mkdir -p /var/lib/apprise/{config,plugin,attach}
 
 podman run -d \
   --name apprise-api \
+  --user 1000:1000 \
+  --read-only \
+  --security-opt no-new-privileges=true \
+  --cap-drop ALL \
+  --tmpfs /tmp \
   -p 8000:8000 \
-  -v /var/lib/apprise:/apprise \
+  -e APPRISE_STORAGE_DIR=/config \
+  -v /var/lib/apprise/config:/config \
+  -v /var/lib/apprise/plugin:/plugin \
+  -v /var/lib/apprise/attach:/attach \
   --network notify-network \
   --restart=always \
-  caronc/apprise
+  docker.io/caronc/apprise:latest
 
 podman run -d \
   --name mailrise \
@@ -230,7 +248,7 @@ Podman is a drop-in replacement for Docker. It can:
 
 ### Official Apprise API Docker Image
 
-The installer uses the official `caronc/apprise` image:
+The installer uses the official `docker.io/caronc/apprise:latest` image:
 
 - ✅ Maintained by Apprise developers
 - ✅ Pre-built and tested
@@ -239,7 +257,8 @@ The installer uses the official `caronc/apprise` image:
 
 ### Data Persistence
 
-- **Storage Location:** `/var/lib/apprise` (on host) → `/apprise` (in container)
+- **Storage Location:** `/var/lib/apprise` rootful, `~/.apprise` rootless
+- **Container Paths:** `/config`, `/plugin`, and `/attach`
 - **Configuration Format:** Proprietary Apprise format
 - **Survives Container Restarts:** Yes
 - **Backup Compatible:** Yes
@@ -279,7 +298,7 @@ podman logs --tail 50 apprise-api
 sudo journalctl -u apprise-api -f
 
 # Mailrise logs
-podman logs -f mailrise
+./scripts/logs.sh --mailrise --follow
 sudo journalctl -u mailrise -f
 ```
 
@@ -296,7 +315,7 @@ curl -X POST http://localhost:8000/notify \
   }'
 
 # Via the provided script
-./examples/send-notification.sh
+./examples/send-notification.sh apprise "Hello" "Test notification" info
 ```
 
 ### Backup Configuration
@@ -413,7 +432,7 @@ See [ROOTLESS.md](ROOTLESS.md) for complete rootless mode guide.
 - **Network Access**: Restrict API access via firewall rules
 - **Authentication**: Consider adding reverse proxy with auth (nginx, Caddy)
 - **TLS/SSL**: Use HTTPS for remote access
-- **Backup**: Regular backups of `/var/lib/apprise` configuration
+- **Backup**: Regular backups with `./scripts/backup-config.sh`
 - **Updates**: Periodically pull latest image for security patches
 
 ## Backup and Restore
@@ -421,13 +440,13 @@ See [ROOTLESS.md](ROOTLESS.md) for complete rootless mode guide.
 ### Backup
 
 ```bash
-tar czf apprise-backup-$(date +%Y%m%d).tar.gz /var/lib/apprise
+./scripts/backup-config.sh
 ```
 
 ### Restore
 
 ```bash
-tar xzf apprise-backup-*.tar.gz -C /
+sudo tar xzf apprise-backup-*.tar.gz -C /
 systemctl restart apprise-api
 ```
 
@@ -435,7 +454,7 @@ systemctl restart apprise-api
 
 ```bash
 # Pull latest official image
-podman pull caronc/apprise
+podman pull docker.io/caronc/apprise:latest
 
 # Restart container
 podman stop apprise-api

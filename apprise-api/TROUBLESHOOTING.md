@@ -65,7 +65,7 @@ EOF
 cat /etc/containers/registries.conf
 
 # Try pull again
-podman pull caronc/apprise
+podman pull docker.io/caronc/apprise:latest
 
 # Mailrise uses a fully qualified image name
 podman pull docker.io/yoryan/mailrise:latest
@@ -78,7 +78,7 @@ Temporarily use fully qualified names while troubleshooting:
 ```bash
 # Instead of: podman pull caronc/apprise
 # Use:
-podman pull docker.io/caronc/apprise
+podman pull docker.io/caronc/apprise:latest
 ```
 
 ### Docker Hub Image Pull Fails (Authentication Error)
@@ -90,7 +90,7 @@ Error: denied: requested access to the resource is denied
 unauthorized: authentication required
 ```
 
-When running: `podman pull caronc/apprise`
+When running: `podman pull docker.io/caronc/apprise:latest`
 
 #### Diagnosis
 
@@ -124,7 +124,7 @@ sudo update-ca-certificates --fresh
 sudo update-ca-certificates -v
 
 # Try pull again
-sudo podman pull caronc/apprise
+sudo podman pull docker.io/caronc/apprise:latest
 ```
 
 **Solution 2: Check Podman Installation**
@@ -135,7 +135,7 @@ podman --version
 podman info
 
 # Try pull again
-sudo podman pull caronc/apprise
+sudo podman pull docker.io/caronc/apprise:latest
 ```
 
 **Solution 3: Network/Firewall Issues**
@@ -177,10 +177,10 @@ podman inspect apprise-api | grep -A 20 "State"
 
 ```bash
 # Check if image exists
-podman images | grep caronc
+podman images | grep 'caronc/apprise'
 
 # If missing, pull official image
-podman pull caronc/apprise
+podman pull docker.io/caronc/apprise:latest
 
 # Stop and remove old container
 podman stop apprise-api
@@ -188,6 +188,9 @@ podman rm apprise-api
 
 # Restart with current image
 sudo ./install-apprise-podman.sh --systemd
+
+# If Mailrise is enabled, include Mailrise options
+sudo ./install-apprise-podman.sh --systemd --mailrise --mailrise-apprise-key your_apprise_config_key
 
 # Or re-run installation script
 sudo ./install-apprise-podman.sh
@@ -202,7 +205,10 @@ free -h
 df -h
 
 # Check if running out of storage
-df /var/lib/apprise
+df -h /var/lib/apprise
+
+# Rootless installs use:
+df -h "$HOME/.apprise"
 ```
 
 Required: ~1GB free disk space, ~256MB available RAM
@@ -344,6 +350,14 @@ sudo journalctl -u mailrise -n 50 -p err
 # Validate systemd file syntax
 sudo systemd-analyze verify /etc/systemd/system/apprise-api.service
 sudo systemd-analyze verify /etc/systemd/system/mailrise.service
+
+# Rootless installs use user services
+systemctl --user status -l apprise-api
+systemctl --user status -l mailrise
+journalctl --user -u apprise-api -n 50 -p err
+journalctl --user -u mailrise -n 50 -p err
+systemd-analyze --user verify ~/.config/systemd/user/apprise-api.service
+systemd-analyze --user verify ~/.config/systemd/user/mailrise.service
 ```
 
 #### Solutions
@@ -357,6 +371,9 @@ sudo cp /etc/systemd/system/apprise-api.service \
 
 # Reinstall with script
 sudo ./install-apprise-podman.sh --systemd
+
+# If Mailrise is installed
+sudo ./install-apprise-podman.sh --systemd --mailrise --mailrise-apprise-key your_apprise_config_key
 
 # Enable and start
 sudo systemctl enable apprise-api
@@ -422,6 +439,8 @@ podman inspect apprise-api --format='{{.NetworkSettings}}'
 # Test from inside container
 podman exec apprise-api curl localhost:8000
 ```
+
+The installer runs Apprise with a read-only root filesystem and persistent mounts at `/config`, `/plugin`, and `/attach`. If the container exits immediately, check for permission errors on the host data directories.
 
 #### Solutions
 
@@ -523,7 +542,7 @@ ping <correct-ip>
 curl http://<correct-ip>:8000
 ```
 
-**Solution 3: Check Docker Networking**
+**Solution 3: Check Podman Networking**
 
 ```bash
 # Ensure container is binding to all interfaces (0.0.0.0)
@@ -836,7 +855,7 @@ podman exec apprise-api apprise -t "Test" -b "Body" \
 
 ```bash
 # Get the latest official image
-podman pull caronc/apprise
+podman pull docker.io/caronc/apprise:latest
 
 # Stop and remove old container
 podman stop apprise-api
@@ -970,6 +989,98 @@ Point SMTP clients at:
 - Port: `8025` or your custom `--mailrise-port`
 - Recipient: `notify@mailrise.xyz`
 
+### Test Mailrise with curl
+
+Create a test message:
+
+```bash
+printf 'Subject: Mailrise curl test\n\nHello from curl via Mailrise\n' > /tmp/mailrise-test.eml
+```
+
+Send it to the default generated Mailrise account:
+
+```bash
+curl -v smtp://127.0.0.1:8025 \
+  --mail-from test@localhost \
+  --mail-rcpt notify@mailrise.xyz \
+  --upload-file /tmp/mailrise-test.eml
+```
+
+Expected SMTP responses include `220`, `250 OK`, `354`, and a final `250 OK`.
+
+For a custom `--mailrise-port`, change the SMTP URL:
+
+```bash
+curl -v smtp://127.0.0.1:2525 \
+  --mail-from test@localhost \
+  --mail-rcpt notify@mailrise.xyz \
+  --upload-file /tmp/mailrise-test.eml
+```
+
+### Mailrise Recipient Is Not Configured
+
+#### Symptom
+
+```text
+ERROR:mailrise.skeleton:Recipient is not configured: notify@localhost
+```
+
+#### Cause
+
+With the default generated config key:
+
+```yaml
+configs:
+  notify:
+```
+
+Mailrise expands the username-only key to `notify@mailrise.xyz`. The address `notify@localhost` is a different recipient and will not match the default config.
+
+#### Solutions
+
+Use the default recipient:
+
+```bash
+curl -v smtp://127.0.0.1:8025 \
+  --mail-from test@localhost \
+  --mail-rcpt notify@mailrise.xyz \
+  --upload-file /tmp/mailrise-test.eml
+```
+
+Or change the Mailrise config key to the exact address you want:
+
+```yaml
+configs:
+  notify@localhost:
+    urls:
+      - apprise://apprise-api:8000/your_apprise_config_key
+```
+
+Then restart Mailrise:
+
+```bash
+sudo systemctl restart mailrise
+
+# Or, for a directly managed container
+sudo podman restart mailrise
+```
+
+### Not a Valid Mailrise Address
+
+#### Symptom
+
+```text
+ERROR:mailrise.skeleton:Not a valid Mailrise address: notify
+```
+
+#### Solution
+
+Use a full email address for the recipient. For the default config, use:
+
+```bash
+--mail-rcpt notify@mailrise.xyz
+```
+
 ## Performance Issues
 
 ### Slow API Response Times
@@ -1063,12 +1174,12 @@ sudo systemctl daemon-reload
 sudo systemctl restart apprise-api
 ```
 
-**Solution 2: Clear History**
+**Solution 2: Inspect Persistent State**
 
 ```bash
-# History is stored in persistent volume
-# Remove old history to free space
-sudo rm /var/lib/apprise/history/*
+# Inspect persistent state before deleting anything
+sudo du -sh /var/lib/apprise/config/* 2>/dev/null || true
+du -sh "$HOME/.apprise/config"/* 2>/dev/null || true
 
 # Restart container
 podman restart apprise-api
@@ -1108,7 +1219,10 @@ podman inspect apprise-api | grep -A 10 "Mounts"
 ls -la /var/lib/apprise
 
 # Check stored configuration files
-ls -la /var/lib/apprise/urls/
+ls -la /var/lib/apprise/config/
+
+# Rootless installs use:
+ls -la "$HOME/.apprise/config/"
 ```
 
 #### Solutions
@@ -1117,9 +1231,12 @@ ls -la /var/lib/apprise/urls/
 
 ```bash
 # Check systemd service
-sudo cat /etc/systemd/system/apprise-api.service | grep -i volume
+sudo grep -E -- '-v .+:/config|-v .+:/plugin|-v .+:/attach' /etc/systemd/system/apprise-api.service
 
-# Should show: -v /var/lib/apprise:/apprise
+# Should show mounts for /config, /plugin, and /attach
+
+# Rootless:
+grep -E -- '-v .+:/config|-v .+:/plugin|-v .+:/attach' ~/.config/systemd/user/apprise-api.service
 
 # If missing, edit service and restart
 sudo nano /etc/systemd/system/apprise-api.service
@@ -1160,9 +1277,11 @@ curl http://localhost:8000/urls > urls-backup.json
 ```bash
 # Check disk usage
 df -h /var/lib/apprise
+df -h "$HOME/.apprise" 2>/dev/null || true
 
 # Check what's using space
 du -sh /var/lib/apprise/*
+du -sh "$HOME/.apprise"/* 2>/dev/null || true
 
 # Check overall disk
 df -h /
@@ -1170,14 +1289,12 @@ df -h /
 
 #### Solutions
 
-**Solution 1: Clear Old History**
+**Solution 1: Review Generated State**
 
 ```bash
-# Remove old notification history
-sudo find /var/lib/apprise/history -mtime +30 -delete
-
-# Or completely clear history
-sudo rm -rf /var/lib/apprise/history/*
+# Inspect storage before deleting anything
+sudo du -sh /var/lib/apprise/config/* 2>/dev/null || true
+du -sh "$HOME/.apprise/config"/* 2>/dev/null || true
 
 # Restart
 podman restart apprise-api
@@ -1304,9 +1421,21 @@ sudo systemctl status mailrise
 sudo journalctl -u apprise-api -n 50
 sudo journalctl -u mailrise -n 50
 
+# Rootless service status
+systemctl --user status apprise-api
+systemctl --user status mailrise
+journalctl --user -u apprise-api -n 50
+journalctl --user -u mailrise -n 50
+
 # Mailrise config and network, if installed
 sudo cat /etc/mailrise.conf
+cat ~/.config/mailrise/mailrise.conf 2>/dev/null || true
 podman network inspect notify-network
+
+# Storage mounts and files
+podman inspect apprise-api --format '{{range .Mounts}}{{println .Source "->" .Destination}}{{end}}'
+ls -la /var/lib/apprise 2>/dev/null || true
+ls -la "$HOME/.apprise" 2>/dev/null || true
 ```
 
 ### Report Issues

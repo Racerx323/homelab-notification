@@ -29,8 +29,8 @@ Add environment variables in the `[Service]` section:
 
 ```ini
 [Service]
-Environment="APPRISE_DEBUG=1"
-Environment="APPRISE_PLUGINS_PATH=/apprise/plugins"
+Environment="APPRISE_STORAGE_DIR=/config"
+Environment="APPRISE_STORAGE_MODE=auto"
 ```
 
 Then reload and restart:
@@ -46,29 +46,36 @@ sudo systemctl restart apprise-api
 podman run -d \
   --name apprise-api \
   -p 8000:8000 \
-  -e APPRISE_DEBUG=1 \
-  -v /var/lib/apprise:/apprise \
-  caronc/apprise
+  -e APPRISE_STORAGE_DIR=/config \
+  -v /var/lib/apprise/config:/config \
+  -v /var/lib/apprise/plugin:/plugin \
+  -v /var/lib/apprise/attach:/attach \
+  docker.io/caronc/apprise:latest
 ```
 
 ### Common Environment Variables
 
 | Variable | Default | Description |
 | ---------- | --------- | ------------- |
-| `APPRISE_DEBUG` | `0` | Enable debug logging (0=off, 1=on) |
-| `APPRISE_PLUGINS_PATH` | `/apprise` | Path to plugins directory |
-| `APPRISE_STATIC_FILES_PATH` | `/apprise/static` | Path to static files |
-| `APPRISE_UPLOAD_PATH` | `/apprise/upload` | Path for uploads |
-| `MAX_CONTENT_LENGTH` | `2097152` | Maximum request size (2MB) |
+| `APPRISE_IMAGE` | `docker.io/caronc/apprise:latest` | Apprise API image |
+| `APPRISE_STORAGE_DIR` | `/config` | Storage directory inside the container |
+| `APPRISE_STORAGE_MODE` | `auto` | Apprise storage mode |
+| `APPRISE_STATEFUL_MODE` | `simple` | Stateful mode |
+| `APPRISE_WORKER_COUNT` | `1` | Worker count |
+| `APPRISE_ADMIN` | `y` | Enable admin mode |
+| `APPRISE_INTERPRET_EMOJIS` | `yes` | Interpret emoji shortcodes |
+| `PUID`, `PGID` | `1000`, `1000` rootful | Container user/group |
+| `APPRISE_USER` | derived | Override container user as `uid:gid` |
+| `TZ` | OS timezone | Container timezone |
 
 ## Persistent Data Storage
 
 ### Default Configuration
 
-- **Mount Point**: `/var/lib/apprise`
-- **Container Path**: `/apprise`
+- **Rootful data directory**: `/var/lib/apprise`
+- **Rootless data directory**: `~/.apprise`
+- **Container paths**: `/config`, `/plugin`, `/attach`
 - **Permissions**: `755` (rwxr-xr-x)
-- **Rootless Mount Point**: `~/.apprise`
 
 When Mailrise is enabled:
 
@@ -81,10 +88,9 @@ When Mailrise is enabled:
 
 ```text
 /var/lib/apprise/
-├── urls                    # Stored notification URLs
-├── tags/                   # Tag configurations
-├── history/                # Notification history
-└── plugins/                # Custom plugins (if any)
+├── config/                 # Apprise configuration and state
+├── plugin/                 # Custom Apprise plugins
+└── attach/                 # Attachments
 ```
 
 ### Backup and Restore
@@ -92,19 +98,9 @@ When Mailrise is enabled:
 #### Backup Configuration
 
 ```bash
-#!/bin/bash
-# Create dated backup
 BACKUP_DIR="$HOME/backups"
-DATE=$(date +%Y%m%d_%H%M%S)
-
 mkdir -p "$BACKUP_DIR"
-sudo tar czf "$BACKUP_DIR/apprise-backup-$DATE.tar.gz" \
-  /var/lib/apprise
-
-# Set permissions
-sudo chown $USER:$USER "$BACKUP_DIR/apprise-backup-$DATE.tar.gz"
-
-echo "Backup saved to: $BACKUP_DIR/apprise-backup-$DATE.tar.gz"
+./scripts/backup-config.sh "$BACKUP_DIR"
 ```
 
 #### Restore Configuration
@@ -128,8 +124,8 @@ To use a different storage directory:
 1. Create the new directory:
 
     ```text
-    sudo mkdir -p /mnt/apprise-storage
-    sudo chmod 755 /mnt/apprise-storage
+    sudo mkdir -p /mnt/apprise-storage/{config,plugin,attach}
+    sudo chmod 755 /mnt/apprise-storage /mnt/apprise-storage/{config,plugin,attach}
     ```
 
 2. Migrate data:
@@ -151,8 +147,10 @@ To use a different storage directory:
     ExecStart=podman run --rm \
     --name apprise-api \
     -p 8000:8000 \
-    -v /mnt/apprise-storage:/apprise \
-    caronc/apprise
+    -v /mnt/apprise-storage/config:/config \
+    -v /mnt/apprise-storage/plugin:/plugin \
+    -v /mnt/apprise-storage/attach:/attach \
+    docker.io/caronc/apprise:latest
     ```
 
 5. Reload and restart:
@@ -239,8 +237,10 @@ Change API port:
     ExecStart=podman run --rm \
     --name apprise-api \
     -p 9000:8000 \
-    -v /var/lib/apprise:/apprise \
-    caronc/apprise
+    -v /var/lib/apprise/config:/config \
+    -v /var/lib/apprise/plugin:/plugin \
+    -v /var/lib/apprise/attach:/attach \
+    docker.io/caronc/apprise:latest
     ```
 
 4. Reload and restart:
@@ -333,6 +333,55 @@ Point SMTP clients at:
 - Host: `<pi-ip>`
 - Port: `8025` or your `--mailrise-port`
 - Recipient: `notify@mailrise.xyz`
+
+### Test Mailrise with curl
+
+Create a simple email body:
+
+```bash
+printf 'Subject: Mailrise curl test\n\nHello from curl via Mailrise\n' > /tmp/mailrise-test.eml
+```
+
+Test the default generated Mailrise account:
+
+```bash
+curl -v smtp://127.0.0.1:8025 \
+  --mail-from test@localhost \
+  --mail-rcpt notify@mailrise.xyz \
+  --upload-file /tmp/mailrise-test.eml
+```
+
+For a custom Mailrise host port, change the SMTP URL:
+
+```bash
+curl -v smtp://127.0.0.1:2525 \
+  --mail-from test@localhost \
+  --mail-rcpt notify@mailrise.xyz \
+  --upload-file /tmp/mailrise-test.eml
+```
+
+If you changed the config name to a full address, use that exact address:
+
+```yaml
+configs:
+  notify@localhost:
+    urls:
+      - apprise://apprise-api:8000/your_apprise_config_key
+```
+
+```bash
+curl -v smtp://127.0.0.1:8025 \
+  --mail-from test@localhost \
+  --mail-rcpt notify@localhost \
+  --upload-file /tmp/mailrise-test.eml
+```
+
+Successful SMTP delivery shows `250 OK` after `MAIL FROM`, `RCPT TO`, and `DATA`. Then check delivery logs:
+
+```bash
+podman logs --tail 50 mailrise
+podman logs --tail 50 apprise-api
+```
 
 ### Mailrise Service Management
 
@@ -516,18 +565,12 @@ To add custom notification plugins:
 1. Create plugins directory:
 
     ```text
-    mkdir -p /var/lib/apprise/plugins
+    mkdir -p /var/lib/apprise/plugin
     ```
 
-2. Add plugin files (Python)
+2. Add plugin files. The installer mounts this directory at `/plugin`.
 
-3. Update environment:
-
-    ```text
-    Environment="APPRISE_PLUGINS_PATH=/apprise/plugins"
-    ```
-
-4. Restart service:
+3. Restart service:
 
     ```text
     sudo systemctl restart apprise-api

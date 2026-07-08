@@ -99,6 +99,8 @@ View and monitor Apprise API logs
 ./scripts/logs.sh --follow          # Real-time logs
 ./scripts/logs.sh -e                # Errors only
 ./scripts/logs.sh --systemd         # Systemd journal
+./scripts/logs.sh --mailrise        # Mailrise logs
+./scripts/logs.sh --user --mailrise # Rootless Mailrise journal
 ```
 
 ### [health-check.sh](scripts/health-check.sh)
@@ -109,6 +111,7 @@ Check health and status of Apprise API
 ./scripts/health-check.sh           # Quick check
 ./scripts/health-check.sh --verbose # Detailed info
 ./scripts/health-check.sh --monitor # Continuous monitoring
+./scripts/health-check.sh --mailrise # Include Mailrise checks
 ```
 
 ### [backup-config.sh](scripts/backup-config.sh)
@@ -243,10 +246,11 @@ podman ps | grep mailrise
 
 # View logs
 ./scripts/logs.sh --follow
-podman logs -f mailrise
+./scripts/logs.sh --mailrise --follow
 
 # Health check
 ./scripts/health-check.sh
+./scripts/health-check.sh --mailrise
 
 # Backup config
 ./scripts/backup-config.sh
@@ -309,7 +313,7 @@ apprise-api/
 ✅ **Mailrise SMTP Relay** - Optional email-to-Apprise bridge  
 ✅ **100+ Services** - Discord, Telegram, Slack, Email, etc.  
 ✅ **Persistent Storage** - Configuration survives restarts  
-✅ **Health Monitoring** - Built-in health checks  
+✅ **Health Monitoring** - Built-in Apprise and optional Mailrise checks  
 ✅ **Comprehensive Docs** - Complete documentation included  
 ✅ **Example Scripts** - Copy-paste ready examples  
 ✅ **Backup Support** - Easy backup/restore  

@@ -8,6 +8,7 @@
 #   - Pulls/builds the Apprise API container
 #   - Configures and runs the container
 #   - Optionally creates a systemd service
+#   - Uses hardened runtime settings and persistent /config, /plugin, /attach state
 #
 # Usage: ./install-apprise-podman.sh [OPTIONS]
 # Usage (rootless): ./install-apprise-podman.sh --rootless [OPTIONS]
@@ -24,6 +25,22 @@
 #   --mailrise-apprise-key KEY
 #                       Set Apprise API config key for Mailrise (default: your_apprise_config_key)
 #
+# Environment overrides:
+#   APPRISE_IMAGE       Container image (default: docker.io/caronc/apprise:latest)
+#   PUID, PGID          Rootful container user/group (default: 1000:1000)
+#   APPRISE_STATEFUL_MODE
+#                       Apprise stateful mode (default: simple)
+#   APPRISE_WORKER_COUNT
+#                       Apprise worker count (default: 1)
+#   APPRISE_ADMIN       Enable Apprise admin mode (default: y)
+#   APPRISE_STORAGE_DIR
+#                       Apprise storage directory inside container (default: /config)
+#   APPRISE_STORAGE_MODE
+#                       Apprise storage mode (default: auto)
+#   APPRISE_INTERPRET_EMOJIS
+#                       Interpret emoji shortcodes in notifications (default: yes)
+#   TZ                  Container timezone (default: operating system timezone)
+#
 
 set -Eeuo pipefail
 
@@ -36,8 +53,19 @@ NC=$'\033[0m' # No Color
 # Configuration
 APPRISE_PORT="${APPRISE_PORT:-8000}"
 APPRISE_CONTAINER_NAME="apprise-api"
-APPRISE_IMAGE="caronc/apprise"
+APPRISE_IMAGE="${APPRISE_IMAGE:-docker.io/caronc/apprise:latest}"
 APPRISE_DATA_DIR="/var/lib/apprise"
+APPRISE_CONFIG_DIR=""
+APPRISE_PLUGIN_DIR=""
+APPRISE_ATTACH_DIR=""
+APPRISE_STATEFUL_MODE="${APPRISE_STATEFUL_MODE:-simple}"
+APPRISE_WORKER_COUNT="${APPRISE_WORKER_COUNT:-1}"
+APPRISE_ADMIN="${APPRISE_ADMIN:-y}"
+APPRISE_STORAGE_DIR="${APPRISE_STORAGE_DIR:-/config}"
+APPRISE_STORAGE_MODE="${APPRISE_STORAGE_MODE:-auto}"
+APPRISE_INTERPRET_EMOJIS="${APPRISE_INTERPRET_EMOJIS:-yes}"
+TZ="${TZ:-}"
+APPRISE_USER="${APPRISE_USER:-}"
 MAILRISE_CONTAINER_NAME="mailrise"
 MAILRISE_IMAGE="docker.io/yoryan/mailrise:latest"
 MAILRISE_CONFIG_FILE="/etc/mailrise.conf"
@@ -53,6 +81,9 @@ INSTALL_COMPLETED=false
 APPRISE_CONTAINER_CREATED=false
 MAILRISE_CONTAINER_CREATED=false
 APPRISE_DATA_DIR_CREATED=false
+APPRISE_CONFIG_DIR_CREATED=false
+APPRISE_PLUGIN_DIR_CREATED=false
+APPRISE_ATTACH_DIR_CREATED=false
 MAILRISE_CONFIG_DIR_CREATED=false
 MAILRISE_CONFIG_TARGET_FILE=""
 MAILRISE_CONFIG_TARGET_PREEXISTED=false
@@ -78,7 +109,7 @@ log_error() {
 }
 
 show_help() {
-    sed -n '3,26p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '3,42p' "$0" | sed 's/^# \{0,1\}//'
 }
 
 cleanup_service_file() {
@@ -169,7 +200,20 @@ cleanup_on_exit() {
     fi
 
     if [[ $APPRISE_DATA_DIR_CREATED == true ]]; then
+        rmdir "$APPRISE_ATTACH_DIR" 2>/dev/null || true
+        rmdir "$APPRISE_PLUGIN_DIR" 2>/dev/null || true
+        rmdir "$APPRISE_CONFIG_DIR" 2>/dev/null || true
         rmdir "$APPRISE_DATA_DIR" 2>/dev/null || true
+    else
+        if [[ $APPRISE_ATTACH_DIR_CREATED == true ]]; then
+            rmdir "$APPRISE_ATTACH_DIR" 2>/dev/null || true
+        fi
+        if [[ $APPRISE_PLUGIN_DIR_CREATED == true ]]; then
+            rmdir "$APPRISE_PLUGIN_DIR" 2>/dev/null || true
+        fi
+        if [[ $APPRISE_CONFIG_DIR_CREATED == true ]]; then
+            rmdir "$APPRISE_CONFIG_DIR" 2>/dev/null || true
+        fi
     fi
 
     log_warn "Cleanup complete. Review the logs above for the original failure."
@@ -184,6 +228,65 @@ check_privileges() {
     if [[ $ROOTLESS_MODE == true && $EUID -eq 0 ]]; then
         log_error "Rootless mode cannot be used with sudo. Run as regular user."
         exit 1
+    fi
+}
+
+detect_os_timezone() {
+    local detected_timezone=""
+    local localtime_target=""
+
+    if command -v timedatectl &> /dev/null; then
+        detected_timezone="$(timedatectl show --property=Timezone --value 2>/dev/null || true)"
+    fi
+
+    if [[ -z "$detected_timezone" && -f /etc/timezone ]]; then
+        detected_timezone="$(sed -n '1p' /etc/timezone 2>/dev/null || true)"
+    fi
+
+    if [[ -z "$detected_timezone" && -L /etc/localtime ]]; then
+        localtime_target="$(readlink /etc/localtime 2>/dev/null || true)"
+        if [[ "$localtime_target" == *"/zoneinfo/"* ]]; then
+            detected_timezone="${localtime_target#*/zoneinfo/}"
+        fi
+    fi
+
+    if [[ -z "$detected_timezone" ]]; then
+        detected_timezone="UTC"
+    fi
+
+    printf '%s\n' "$detected_timezone"
+}
+
+configure_timezone() {
+    if [[ -n "$TZ" ]]; then
+        log_info "Using container timezone from TZ: $TZ"
+        return 0
+    fi
+
+    TZ="$(detect_os_timezone)"
+    log_info "Using operating system timezone for container: $TZ"
+}
+
+configure_apprise_user() {
+    if [[ -n "$APPRISE_USER" ]]; then
+        log_info "Using Apprise container user from APPRISE_USER: $APPRISE_USER"
+        return 0
+    fi
+
+    if [[ $ROOTLESS_MODE == true ]]; then
+        APPRISE_USER="${PUID:-$(id -u)}:${PGID:-$(id -g)}"
+    else
+        APPRISE_USER="${PUID:-1000}:${PGID:-1000}"
+    fi
+
+    log_info "Using Apprise container user: $APPRISE_USER"
+}
+
+mailrise_account() {
+    if [[ "$MAILRISE_CONFIG_NAME" == *"@"* ]]; then
+        printf '%s\n' "$MAILRISE_CONFIG_NAME"
+    else
+        printf '%s@mailrise.xyz\n' "$MAILRISE_CONFIG_NAME"
     fi
 }
 
@@ -202,7 +305,6 @@ check_podman() {
 
 configure_registries() {
     # Configure registry search for short-name image resolution
-    # Required for: podman pull caronc/apprise (without docker.io prefix)
     
     local registries_conf="/etc/containers/registries.conf"
     
@@ -260,8 +362,36 @@ setup_apprise_directory() {
         APPRISE_DATA_DIR_CREATED=true
     fi
 
-    mkdir -p "$APPRISE_DATA_DIR"
-    chmod 755 "$APPRISE_DATA_DIR"
+    APPRISE_CONFIG_DIR="$APPRISE_DATA_DIR/config"
+    APPRISE_PLUGIN_DIR="$APPRISE_DATA_DIR/plugin"
+    APPRISE_ATTACH_DIR="$APPRISE_DATA_DIR/attach"
+
+    if [[ ! -d "$APPRISE_CONFIG_DIR" ]]; then
+        APPRISE_CONFIG_DIR_CREATED=true
+        log_info "Creating Apprise config directory: $APPRISE_CONFIG_DIR"
+    else
+        log_info "Using existing Apprise config directory: $APPRISE_CONFIG_DIR"
+    fi
+    if [[ ! -d "$APPRISE_PLUGIN_DIR" ]]; then
+        APPRISE_PLUGIN_DIR_CREATED=true
+        log_info "Creating Apprise plugin directory: $APPRISE_PLUGIN_DIR"
+    else
+        log_info "Using existing Apprise plugin directory: $APPRISE_PLUGIN_DIR"
+    fi
+    if [[ ! -d "$APPRISE_ATTACH_DIR" ]]; then
+        APPRISE_ATTACH_DIR_CREATED=true
+        log_info "Creating Apprise attachment directory: $APPRISE_ATTACH_DIR"
+    else
+        log_info "Using existing Apprise attachment directory: $APPRISE_ATTACH_DIR"
+    fi
+
+    mkdir -p "$APPRISE_CONFIG_DIR" "$APPRISE_PLUGIN_DIR" "$APPRISE_ATTACH_DIR"
+    chmod 755 "$APPRISE_DATA_DIR" "$APPRISE_CONFIG_DIR" "$APPRISE_PLUGIN_DIR" "$APPRISE_ATTACH_DIR"
+
+    if [[ $ROOTLESS_MODE == false ]]; then
+        chown "$APPRISE_USER" "$APPRISE_DATA_DIR"
+        chown -R "$APPRISE_USER" "$APPRISE_CONFIG_DIR" "$APPRISE_PLUGIN_DIR" "$APPRISE_ATTACH_DIR"
+    fi
 }
 
 setup_mailrise_config() {
@@ -325,7 +455,7 @@ pull_apprise_image() {
     else
         log_error "Failed to pull Docker image: $APPRISE_IMAGE"
         log_info "Try manual pull for diagnostics:"
-        log_info "  podman pull caronc/apprise"
+        log_info "  podman pull $APPRISE_IMAGE"
         return 1
     fi
 }
@@ -354,7 +484,7 @@ build_apprise_image_locally() {
     log_info "  3. Sufficient disk space (~500MB)"
     log_info ""
     log_info "If the pull failed, try manually:"
-    log_info "  sudo podman pull caronc/apprise"
+    log_info "  sudo podman pull $APPRISE_IMAGE"
     exit 1
 }
 
@@ -362,7 +492,9 @@ stop_existing_container() {
     if podman container exists "$APPRISE_CONTAINER_NAME" 2>/dev/null; then
         log_info "Stopping existing container: $APPRISE_CONTAINER_NAME"
         podman stop "$APPRISE_CONTAINER_NAME" || true
-        podman rm "$APPRISE_CONTAINER_NAME" || true
+        if podman container exists "$APPRISE_CONTAINER_NAME" 2>/dev/null; then
+            podman rm "$APPRISE_CONTAINER_NAME" || true
+        fi
     fi
 }
 
@@ -370,7 +502,9 @@ stop_existing_mailrise_container() {
     if podman container exists "$MAILRISE_CONTAINER_NAME" 2>/dev/null; then
         log_info "Stopping existing container: $MAILRISE_CONTAINER_NAME"
         podman stop "$MAILRISE_CONTAINER_NAME" || true
-        podman rm "$MAILRISE_CONTAINER_NAME" || true
+        if podman container exists "$MAILRISE_CONTAINER_NAME" 2>/dev/null; then
+            podman rm "$MAILRISE_CONTAINER_NAME" || true
+        fi
     fi
 }
 
@@ -426,8 +560,22 @@ StartLimitBurst=3
 # Run the container with podman
 ExecStart=/usr/bin/podman run --rm \\
     --name $APPRISE_CONTAINER_NAME \\
+    --user $APPRISE_USER \\
+    --read-only \\
+    --security-opt no-new-privileges=true \\
+    --cap-drop ALL \\
+    --tmpfs /tmp \\
     -p $APPRISE_PORT:8000 \\
-    -v $APPRISE_DATA_DIR:/apprise \\
+    -e APPRISE_STATEFUL_MODE=$APPRISE_STATEFUL_MODE \\
+    -e APPRISE_WORKER_COUNT=$APPRISE_WORKER_COUNT \\
+    -e APPRISE_ADMIN=$APPRISE_ADMIN \\
+    -e APPRISE_STORAGE_DIR=$APPRISE_STORAGE_DIR \\
+    -e APPRISE_STORAGE_MODE=$APPRISE_STORAGE_MODE \\
+    -e APPRISE_INTERPRET_EMOJIS=$APPRISE_INTERPRET_EMOJIS \\
+    -e TZ=$TZ \\
+    -v $APPRISE_CONFIG_DIR:/config \\
+    -v $APPRISE_PLUGIN_DIR:/plugin \\
+    -v $APPRISE_ATTACH_DIR:/attach \\
 EOF
         if [[ $ENABLE_MAILRISE == true ]]; then
             echo "    --network $NOTIFY_NETWORK_NAME \\"
@@ -542,8 +690,22 @@ run_container_direct() {
     
     podman run -d \
         --name "$APPRISE_CONTAINER_NAME" \
+        --user "$APPRISE_USER" \
+        --read-only \
+        --security-opt no-new-privileges=true \
+        --cap-drop ALL \
+        --tmpfs /tmp \
         -p "$APPRISE_PORT:8000" \
-        -v "$APPRISE_DATA_DIR:/apprise" \
+        -e "APPRISE_STATEFUL_MODE=$APPRISE_STATEFUL_MODE" \
+        -e "APPRISE_WORKER_COUNT=$APPRISE_WORKER_COUNT" \
+        -e "APPRISE_ADMIN=$APPRISE_ADMIN" \
+        -e "APPRISE_STORAGE_DIR=$APPRISE_STORAGE_DIR" \
+        -e "APPRISE_STORAGE_MODE=$APPRISE_STORAGE_MODE" \
+        -e "APPRISE_INTERPRET_EMOJIS=$APPRISE_INTERPRET_EMOJIS" \
+        -e "TZ=$TZ" \
+        -v "$APPRISE_CONFIG_DIR:/config" \
+        -v "$APPRISE_PLUGIN_DIR:/plugin" \
+        -v "$APPRISE_ATTACH_DIR:/attach" \
         "${network_args[@]}" \
         --restart=always \
         --log-driver=journald \
@@ -615,7 +777,15 @@ ${GREEN}========== Apprise API Installation Complete ==========${NC}
 Container Name:     $APPRISE_CONTAINER_NAME
 API Port:           $APPRISE_PORT
 Data Directory:     $APPRISE_DATA_DIR
+Config Directory:   $APPRISE_CONFIG_DIR
+Plugin Directory:   $APPRISE_PLUGIN_DIR
+Attach Directory:   $APPRISE_ATTACH_DIR
 Image:              $APPRISE_IMAGE
+Container User:     $APPRISE_USER
+Timezone:           $TZ
+Storage Directory:  $APPRISE_STORAGE_DIR
+Storage Mode:       $APPRISE_STORAGE_MODE
+Interpret Emojis:   $APPRISE_INTERPRET_EMOJIS
 Mode:               $(if [[ $ROOTLESS_MODE == true ]]; then echo "Rootless (user)"; else echo "Rootful (system)"; fi)
 Mailrise:           $(if [[ $ENABLE_MAILRISE == true ]]; then echo "Enabled"; else echo "Disabled"; fi)
 $(if [[ $ENABLE_MAILRISE == true ]]; then
@@ -623,6 +793,7 @@ cat << MAILRISE_SUMMARY
 Mailrise Image:     $MAILRISE_IMAGE
 Mailrise SMTP Port: $MAILRISE_PORT
 Mailrise Config:    $MAILRISE_CONFIG_FILE
+Mailrise Account:   $(mailrise_account)
 $(if [[ -n $MAILRISE_EXAMPLE_CONFIG_FILE && -f $MAILRISE_EXAMPLE_CONFIG_FILE ]]; then echo "Mailrise Example:   $MAILRISE_EXAMPLE_CONFIG_FILE"; fi)
 Podman Network:     $NOTIFY_NETWORK_NAME
 Apprise URL:        apprise://$APPRISE_CONTAINER_NAME:8000/$MAILRISE_APPRISE_CONFIG_KEY
@@ -820,6 +991,8 @@ main() {
     log_info "Podman version 4.3.1+"
     
     check_privileges
+    configure_timezone
+    configure_apprise_user
     check_podman
     
     # Only install system dependencies if not rootless

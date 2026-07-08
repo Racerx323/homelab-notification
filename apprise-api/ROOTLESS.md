@@ -43,7 +43,7 @@ curl http://localhost:8000
 - **Podman**: 4.0+ (rootless support is built-in)
 - **User Account**: Regular (non-root) user account
 - **Permissions**: Must have access to run `podman` (membership in `podman` group or similar)
-- **Disk Space**: ~500MB in user's home directory
+- **Disk Space**: ~2GB recommended in user's home directory
 
 ## Installation
 
@@ -56,7 +56,7 @@ curl http://localhost:8000
 This will:
 
 1. Check if podman is installed
-2. Create `~/.apprise` directory for persistent data
+2. Create `~/.apprise/config`, `~/.apprise/plugin`, and `~/.apprise/attach`
 3. Pull the official Docker image
 4. Start the container immediately
 5. Display access information
@@ -208,22 +208,20 @@ podman rm -f mailrise
 Rootless mode stores persistent data in your home directory:
 
 ```bash
-~/.apprise/          # Configuration and data directory
+~/.apprise/          # Apprise config, plugin, and attachment directories
 ~/.config/mailrise/  # Mailrise config when --mailrise is enabled
 ```
 
 ### Backup Configuration
 
 ```bash
-tar -czf apprise-backup.tar.gz ~/.apprise/
-tar -czf mailrise-backup.tar.gz ~/.config/mailrise/
+./scripts/backup-config.sh
 ```
 
 ### Restore Configuration
 
 ```bash
-tar -xzf apprise-backup.tar.gz -C ~/
-tar -xzf mailrise-backup.tar.gz -C ~/
+tar -xzf apprise-backup-*.tar.gz -C /
 ```
 
 ## Accessing the API
@@ -407,6 +405,7 @@ ssh pi@10.1.3.83 'journalctl --user -u mailrise -n 20'
 
    ```bash
    sudo rm /etc/systemd/system/apprise-api.service
+   sudo rm /etc/systemd/system/mailrise.service
    sudo systemctl daemon-reload
    ```
 

@@ -86,7 +86,7 @@ sudo ./install-apprise-podman.sh
 
 This will:
 
-- Download the official **caronc/apprise** Docker image from Docker Hub
+- Download the official **docker.io/caronc/apprise:latest** Docker image from Docker Hub
 - Configure Podman to run the container
 - Start the container immediately
 - Make it available at `http://localhost:8000`
@@ -149,7 +149,7 @@ sudo ./install-apprise-podman.sh --systemd --mailrise --mailrise-apprise-key you
 
 This will:
 
-- Pull the official **caronc/apprise** Docker image
+- Pull the official **docker.io/caronc/apprise:latest** Docker image
 - Pull the official **docker.io/yoryan/mailrise:latest** Docker image
 - Create a shared Podman network named `notify-network`
 - Create `/etc/mailrise.conf`, or create `/etc/mailrise.conf.example` if a config already exists
@@ -294,6 +294,8 @@ sudo systemctl disable apprise-api
 sudo systemctl disable mailrise
 ```
 
+For rootless systemd installs, use `systemctl --user` and `journalctl --user` instead of the `sudo systemctl` and `sudo journalctl` commands above.
+
 ## Post-Installation Configuration
 
 ### 1. Access the API
@@ -429,13 +431,13 @@ ping -c 1 hub.docker.com
 curl -I https://hub.docker.com
 
 # Step 3: Try manual pull
-sudo podman pull caronc/apprise
+sudo podman pull docker.io/caronc/apprise:latest
 
 # Step 4: Check Podman registry configuration
 cat /etc/containers/registries.conf
 ```
 
-**Note:** The installer automatically configures `/etc/containers/registries.conf` with Docker Hub and Quay.io registries to enable short-name image resolution (e.g., `podman pull caronc/apprise`). This is required for Debian 12's default Podman installation.
+**Note:** The installer uses the fully qualified Docker Hub image path by default. In rootful mode it also configures `/etc/containers/registries.conf` for compatibility with other short-name pulls.
 
 ### General Podman Issues
 
@@ -452,7 +454,7 @@ systemctl status podman
 sudo systemctl start podman
 
 # Try manual pull
-podman pull caronc/apprise
+podman pull docker.io/caronc/apprise:latest
 ```
 
 ## Uninstallation
@@ -492,7 +494,7 @@ podman stop mailrise
 podman rm mailrise
 
 # Remove image
-podman rmi caronc/apprise
+podman rmi docker.io/caronc/apprise:latest
 podman rmi docker.io/yoryan/mailrise:latest
 
 # Remove configuration
