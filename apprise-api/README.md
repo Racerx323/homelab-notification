@@ -123,14 +123,15 @@ podman logs -f mailrise
 apprise-api/
 ├── install-apprise-podman.sh      # Automated installation script
 ├── README.md                        # This file
-├── QUICK_START.md                   # Fast setup guide
-├── INSTALLATION.md                  # Detailed installation guide
-├── CONFIGURATION.md                 # Configuration reference
-├── ROOTLESS.md                      # Rootless Podman guide
-├── TROUBLESHOOTING.md              # Common issues and solutions
-├── INDEX.md                         # Documentation index
 ├── UPDATES.md                       # Change summary
 ├── podman-compose.yml              # Podman compose configuration
+├── docs/                            # Documentation
+│   ├── QUICK_START.md               # Fast setup guide
+│   ├── INSTALLATION.md              # Detailed installation guide
+│   ├── CONFIGURATION.md             # Configuration reference
+│   ├── ROOTLESS.md                  # Rootless Podman guide
+│   ├── TROUBLESHOOTING.md           # Common issues and solutions
+│   └── INDEX.md                     # Documentation index
 ├── examples/                        # Example configurations and scripts
 │   ├── send-notification.sh         # Example notification script
 │   ├── api-examples.json            # API reference examples
@@ -332,7 +333,7 @@ curl -X POST http://localhost:8000/notify \
 
 ## Configuration
 
-See [CONFIGURATION.md](CONFIGURATION.md) for:
+See [docs/CONFIGURATION.md](docs/CONFIGURATION.md) for:
 
 - Environment variables
 - Persistent storage options
@@ -342,7 +343,7 @@ See [CONFIGURATION.md](CONFIGURATION.md) for:
 
 ## Troubleshooting
 
-See [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for solutions to:
+See [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) for solutions to:
 
 - Container startup issues
 - API connection problems
@@ -425,7 +426,7 @@ loginctl enable-linger
 - ✅ Simpler setup
 - ✅ Perfect for single-user systems like Raspberry Pi
 
-See [ROOTLESS.md](ROOTLESS.md) for complete rootless mode guide.
+See [docs/ROOTLESS.md](docs/ROOTLESS.md) for complete rootless mode guide.
 
 ## Security Considerations
 
@@ -472,10 +473,12 @@ sudo systemctl restart mailrise
 
 ## Documentation Files
 
-- **[INSTALLATION.md](INSTALLATION.md)** - Detailed step-by-step installation
-- **[CONFIGURATION.md](CONFIGURATION.md)** - Configuration options and advanced setup
-- **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)** - Common issues and solutions
-- **[ROOTLESS.md](ROOTLESS.md)** - Rootless Podman setup
+- **[docs/INDEX.md](docs/INDEX.md)** - Documentation index
+- **[docs/QUICK_START.md](docs/QUICK_START.md)** - Fast setup guide
+- **[docs/INSTALLATION.md](docs/INSTALLATION.md)** - Detailed step-by-step installation
+- **[docs/CONFIGURATION.md](docs/CONFIGURATION.md)** - Configuration options and advanced setup
+- **[docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)** - Common issues and solutions
+- **[docs/ROOTLESS.md](docs/ROOTLESS.md)** - Rootless Podman setup
 
 ## External Resources
 
