@@ -7,27 +7,27 @@
     ".github/SECURITY.md": "9a10280ee7877f1db007b23964402788b604e032ad269dd3156ee855987b1c0e",
     "AGENTS.md": "10689b6c8be3e2466d71b419db3a1435f7d89ea5fe3233b91e60df431d79993c",
     "LICENSE.md": "d8cc175db55c0f01f6803280bff205099aef6b3965feeb430f7b71af583c7345",
-    "apprise-api/CONFIGURATION.md": "85e060465e9bb361c0a12efd8e5979542c41a0e2f741d77a2938f7c2d96db156",
-    "apprise-api/INDEX.md": "193315559c999e4e60822ac22d77234c7dd1230afb01b70f6b7a93985098409b",
-    "apprise-api/INSTALLATION.md": "361af9b3a9eba0a018b9f66ad600095340f335c0412cd8d365f51f68ddc32db4",
-    "apprise-api/QUICK_START.md": "f3359c84f619d20b595d443bd7d2082d192adc84d40787066a3c3a9d91d90358",
-    "apprise-api/README.md": "d14f5b6bf87d789e122217f8d5959649e196c7383e99b1c1170ed0b1ef650842",
-    "apprise-api/ROOTLESS.md": "d2632c1f39caf62268fcb9e04d5c61d27f50e9e8b8f477e1f487558860da345a",
-    "apprise-api/TROUBLESHOOTING.md": "7347d8904bd04fd1019ab840bbb015ad1be40308e4a552052b260214b434324a",
+    "apprise-api/README.md": "1065681df30a1e3e26504a43081246a504190ee9213795ba45e6de07dea54c52",
+    "apprise-api/docs/CONFIGURATION.md": "97e4954883474501c877edee3297cac658cab887f1b1e1be653e82796deddd4c",
+    "apprise-api/docs/INDEX.md": "ebaee9cca39a347bb77cbbc1a823eb24a62603d28d9fd5726b8dc7a5adc5c555",
+    "apprise-api/docs/INSTALLATION.md": "93a2e7f0ff46cad88b8a51ef588c87cf10c6002c92d0be7ccbc16c5a44e07d92",
+    "apprise-api/docs/QUICK_START.md": "67cb7521a1c6f39721c8724bb65d9048b3110cb8e3402a0c92473ba2b166f26a",
+    "apprise-api/docs/ROOTLESS.md": "d45ebc6e41797c4e2b86c8217df1686b06aff0e1194990aa0ac8cfb919928c18",
+    "apprise-api/docs/TROUBLESHOOTING.md": "cd89cafbae0c064918ee3efd2a136aeaa846b62cab6d9ac0f147479968a3ca70",
     "apprise-api/examples/api-examples.json": "38a62b5fb535946bd925bc9e35a52d7c7ddee214ded93a93e8b49e954676c6b4",
     "apprise-api/examples/send-notification.sh": "a15dc1af6596c560b6ba3ae7d47de792d7cdf69304956258f158d7ff8b68c340",
-    "apprise-api/install-apprise-podman.sh": "7d7ea2a4bf7f07ecf16fd91c273c231d8057e201f54557699407548676565a87",
-    "apprise-api/scripts/backup-config.sh": "fed1cd0b72091ffc6c05987e1d07be3d11bbdfb47614c87bf898bd72ee26db9d",
-    "apprise-api/scripts/health-check.sh": "ab10e35d5ce589e34d612dab7ce8fc2510a4b955e1d38b0daaaaff56d11ce197",
-    "apprise-api/scripts/logs.sh": "ac6fb236c495e8cb2558a22e27143bcce07be5cf6580ef4f22a14e5f0cc8aa59"
+    "apprise-api/install-apprise-podman.sh": "dcf551c8104b1c3fd77279083a9e80f23f338ea5a9f05f2948079e6d91703d8c",
+    "apprise-api/scripts/backup-config.sh": "702e8c0e5b0c3c24e717a31a9e4d4203bfae2d9ede88711a464f07934b3b7ee9",
+    "apprise-api/scripts/health-check.sh": "d5ec9efe289927a80e652c1d738f79537197dacb9c7f61dd47988695af391dc0",
+    "apprise-api/scripts/logs.sh": "fa817c44d87752eddf28f4178f6617521ca3c0140957d58012f867c9d0020e2c"
   },
-  "indexed_at_commit": "d6aa95878b14d060629cdc83ebd75775c6404ba0",
-  "indexed_at_timestamp": "2026-07-07T17:11:53.262792052+00:00",
+  "indexed_at_commit": "706e8460da3e131f1067463a22e3ca9ac12f3096",
+  "indexed_at_timestamp": "2026-07-13T17:54:39.939331110+00:00",
   "schema_version": 3,
   "stats": {
-    "total_edges": 475,
+    "total_edges": 488,
     "total_files": 20,
-    "total_nodes": 526
+    "total_nodes": 553
   },
-  "vexp_version": "2.1.0"
+  "vexp_version": "2.1.7"
 }
