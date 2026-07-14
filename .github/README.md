@@ -4,7 +4,9 @@
 ![last commit](https://badgen.net/github/last-commit/Racerx323/homelab-notification)
 [![Open Issues](https://badgen.net/github/open-issues/Racerx323/homelab-notification)](https://github.com/Racerx323/homelab-notification/issues?q=is%3Aissue%20state%3Aopen)
 [![Pull Requests](https://badgen.net/github/prs/Racerx323/homelab-notification)](https://github.com/Racerx323/homelab-notification/pulls)
-[![The Code Registry Verification Badge](https://thecoderegistryprod.blob.core.windows.net/public-web/verification-badges/level-1/vault/a2422c00-1258-4462-998d-c93bc5d54e4c/default-style_1-2ff3a6964bbc.png?v=1784054836)](https://app.thecoderegistry.com/verify/vault/a2422c00-1258-4462-998d-c93bc5d54e4c)
+<a href="https://app.thecoderegistry.com/verify/vault/a2422c00-1258-4462-998d-c93bc5d54e4c" target="_blank" rel="noopener noreferrer">
+  <img src="https://thecoderegistryprod.blob.core.windows.net/public-web/verification-badges/level-1/vault/a2422c00-1258-4462-998d-c93bc5d54e4c/default-style_1-2ff3a6964bbc.png?v=1784054836" alt="The Code Registry Verification Badge" width="150" />
+</a>
 
 A centralized repository for managing notification service configurations for my homelab. This project aims to provide ready-to-use configurations for various services, making it easier to set up and maintain notifications across different applications.
 
