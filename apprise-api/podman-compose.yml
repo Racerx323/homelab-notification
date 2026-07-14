@@ -53,7 +53,12 @@ services:
       - NET_BIND_SERVICE
     security_opt:
       - no-new-privileges:true
-    read_only_rootfs: true
+    read_only: true
+
+    # Ephemeral writable storage required at runtime
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m
+      - /run:rw,noexec,nosuid,nodev,size=16m
     
     # Healthcheck
     healthcheck:
