@@ -7,24 +7,24 @@ services:
   apprise-api:
     # Official Apprise API Docker image from Docker Hub
     image: docker.io/caronc/apprise:latest
-    
+
     # Container name
     container_name: apprise-api
-    
+
     # Restart policy
     restart: always
-    
+
     # Port mappings
     ports:
       - "8000:8000"
-    
+
     # Volume mounts
     volumes:
       # Persistent storage for configuration, plugins, and attachments
       - /var/lib/apprise/config:/config
       - /var/lib/apprise/plugin:/plugin
       - /var/lib/apprise/attach:/attach
-    
+
     # Environment variables
     environment:
       APPRISE_STORAGE_DIR: "/config"
@@ -33,18 +33,18 @@ services:
       APPRISE_WORKER_COUNT: "1"
       APPRISE_ADMIN: "y"
       APPRISE_INTERPRET_EMOJIS: "yes"
-    
+
     # Logging
     logging:
       driver: journald
       options:
         tag: "apprise-api"
-    
+
     # Resource limits (adjust for Raspberry Pi)
     mem_limit: 512m
     memswap_limit: 512m
     cpus: '1.0'
-    
+
     # Capabilities and security
     cap_drop:
       - ALL
@@ -58,7 +58,7 @@ services:
     tmpfs:
       - /tmp:rw,noexec,nosuid,nodev,size=64m
       - /run:rw,noexec,nosuid,nodev,size=16m
-    
+
     # Healthcheck
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/status"]
@@ -66,14 +66,10 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
-    
+
     # Network
     networks:
       - apprise-net
-    
-    # Additional runtime options
-    # sysctls:
-    #   - net.ipv4.ip_forward=1
 
 networks:
   apprise-net:

@@ -49,7 +49,7 @@ log_debug() {
 }
 
 show_help() {
-    cat << EOF
+    cat <<EOF
 Apprise API - Health Check
 
 Usage: $0 [OPTIONS]
@@ -90,7 +90,7 @@ detect_apprise_data_dir() {
 }
 
 smtp_port_check() {
-    timeout 3 bash -c "</dev/tcp/127.0.0.1/$MAILRISE_PORT" > /dev/null 2>&1
+    timeout 3 bash -c "</dev/tcp/127.0.0.1/$MAILRISE_PORT" >/dev/null 2>&1
 }
 
 # Parse arguments
@@ -108,7 +108,7 @@ while [[ $# -gt 0 ]]; do
             CHECK_MAILRISE=true
             shift
             ;;
-        -h|--help)
+        -h | --help)
             show_help
             exit 0
             ;;
@@ -126,16 +126,16 @@ detect_apprise_data_dir
 run_health_check() {
     local timestamp
     timestamp=$(date '+%Y-%m-%d %H:%M:%S')
-    
+
     if [[ "$MONITOR" != true ]]; then
         echo -e "${BLUE}=== Apprise API Health Check ===${NC}"
         echo "Time: $timestamp"
         echo "URL: $APPRISE_URL"
         echo ""
     fi
-    
+
     local all_ok=true
-    
+
     # Check 1: Container Status
     echo -n "Container Status: "
     if podman container exists apprise-api 2>/dev/null; then
@@ -151,16 +151,16 @@ run_health_check() {
         log_error "Container not found"
         all_ok=false
     fi
-    
+
     # Check 2: API Connectivity
     echo -n "API Connectivity: "
-    if curl -fsS -m 5 "$APPRISE_URL/status" > /dev/null 2>&1; then
+    if curl -fsS -m 5 "$APPRISE_URL/status" >/dev/null 2>&1; then
         log_info "OK"
     else
         log_error "Cannot reach API"
         all_ok=false
     fi
-    
+
     # Check 3: API Response
     echo -n "API Response Time: "
     local response_time
@@ -177,22 +177,22 @@ run_health_check() {
         log_error "No response"
         all_ok=false
     fi
-    
+
     # Check 4: Status Endpoint
     echo -n "Status Endpoint: "
-    if curl -fsS -m 5 "$APPRISE_URL/status" > /dev/null 2>&1; then
+    if curl -fsS -m 5 "$APPRISE_URL/status" >/dev/null 2>&1; then
         log_info "OK"
     else
         log_error "Not responding"
         all_ok=false
     fi
-    
+
     # Check 5: Storage
     echo -n "Storage: "
     if [[ -d "$APPRISE_DATA_DIR" ]]; then
         local available
         available=$(df -k "$APPRISE_DATA_DIR" | awk 'NR == 2 {print $4}')
-        if [[ $available -gt 102400 ]]; then  # > 100MB free
+        if [[ $available -gt 102400 ]]; then # > 100MB free
             log_info "OK ($(df -h "$APPRISE_DATA_DIR" | awk 'NR == 2 {print $4}') free at $APPRISE_DATA_DIR)"
         else
             log_warn "Low space ($(df -h "$APPRISE_DATA_DIR" | awk 'NR == 2 {print $4}') free at $APPRISE_DATA_DIR)"
@@ -201,7 +201,7 @@ run_health_check() {
         log_error "Storage not found: $APPRISE_DATA_DIR"
         all_ok=false
     fi
-    
+
     # Check 6: Resource Usage
     echo -n "Memory Usage: "
     if podman container exists apprise-api 2>/dev/null; then
@@ -213,11 +213,11 @@ run_health_check() {
             log_warn "Unable to determine"
         fi
     fi
-    
+
     # Check 7: Systemd Service (if enabled)
     if systemctl is-enabled apprise-api 2>/dev/null; then
         echo -n "Systemd Service: "
-        if systemctl is-active apprise-api > /dev/null 2>&1; then
+        if systemctl is-active apprise-api >/dev/null 2>&1; then
             log_info "Active"
         else
             log_error "Inactive"
@@ -227,7 +227,7 @@ run_health_check() {
 
     if systemctl --user is-enabled apprise-api 2>/dev/null; then
         echo -n "User Systemd Service: "
-        if systemctl --user is-active apprise-api > /dev/null 2>&1; then
+        if systemctl --user is-active apprise-api >/dev/null 2>&1; then
             log_info "Active"
         else
             log_error "Inactive"
@@ -261,7 +261,7 @@ run_health_check() {
 
         if systemctl is-enabled mailrise 2>/dev/null; then
             echo -n "Mailrise Systemd Service: "
-            if systemctl is-active mailrise > /dev/null 2>&1; then
+            if systemctl is-active mailrise >/dev/null 2>&1; then
                 log_info "Active"
             else
                 log_error "Inactive"
@@ -271,7 +271,7 @@ run_health_check() {
 
         if systemctl --user is-enabled mailrise 2>/dev/null; then
             echo -n "Mailrise User Systemd Service: "
-            if systemctl --user is-active mailrise > /dev/null 2>&1; then
+            if systemctl --user is-active mailrise >/dev/null 2>&1; then
                 log_info "Active"
             else
                 log_error "Inactive"
@@ -279,12 +279,12 @@ run_health_check() {
             fi
         fi
     fi
-    
+
     # Detailed Information
     if [[ "$VERBOSE" == true ]]; then
         echo ""
         echo -e "${BLUE}=== Detailed Information ===${NC}"
-        
+
         # Container details
         if podman container exists apprise-api 2>/dev/null; then
             echo ""
@@ -305,7 +305,7 @@ run_health_check() {
   Status: {{.State.Status}}
   Restart Count: {{.RestartCount}}' 2>/dev/null || true
         fi
-        
+
         # API status
         echo ""
         echo -e "${BLUE}API Status:${NC}"
@@ -317,14 +317,14 @@ run_health_check() {
             echo "  Unable to retrieve status"
         fi
     fi
-    
+
     echo ""
     if [[ "$all_ok" == true ]]; then
         log_info "All checks passed!"
     else
         log_error "Some checks failed!"
     fi
-    
+
     if [[ "$all_ok" == true ]]; then
         return 0
     fi
@@ -336,15 +336,15 @@ if [[ "$MONITOR" == true ]]; then
     echo -e "${BLUE}=== Apprise API Health Monitor ===${NC}"
     echo "Monitoring Apprise API status (updates every 10 seconds, Ctrl+C to stop)"
     echo ""
-    
+
     while true; do
         clear
         echo -e "${BLUE}=== Apprise API Health Monitor ===${NC}"
         echo "Last check: $(date '+%Y-%m-%d %H:%M:%S')"
         echo ""
-        
+
         run_health_check || true
-        
+
         sleep 10
     done
 else

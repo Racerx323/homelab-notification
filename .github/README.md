@@ -1,107 +1,202 @@
 # Homelab Notification Services
 
 ![License](https://badgen.net/github/license/Racerx323/homelab-notification)
-![last commit](https://badgen.net/github/last-commit/Racerx323/homelab-notification)
-[![Open Issues](https://badgen.net/github/open-issues/Racerx323/homelab-notification)](https://github.com/Racerx323/homelab-notification/issues?q=is%3Aissue%20state%3Aopen)
-[![Pull Requests](https://badgen.net/github/prs/Racerx323/homelab-notification)](https://github.com/Racerx323/homelab-notification/pulls)
+![Last commit](https://badgen.net/github/last-commit/Racerx323/homelab-notification)
+[![Open issues](https://badgen.net/github/open-issues/Racerx323/homelab-notification)](https://github.com/Racerx323/homelab-notification/issues?q=is%3Aissue%20state%3Aopen)
+[![Pull requests](https://badgen.net/github/prs/Racerx323/homelab-notification)](https://github.com/Racerx323/homelab-notification/pulls)
+<!-- markdownlint-disable MD013 MD033 -->
 <a href="https://app.thecoderegistry.com/verify/vault/a2422c00-1258-4462-998d-c93bc5d54e4c" target="_blank" rel="noopener noreferrer">
-  <img src="https://thecoderegistryprod.blob.core.windows.net/public-web/verification-badges/level-1/vault/a2422c00-1258-4462-998d-c93bc5d54e4c/default-style_1-2ff3a6964bbc.png?v=1784054836" alt="The Code Registry Verification Badge" width="150" />
+  <img src="https://thecoderegistryprod.blob.core.windows.net/public-web/verification-badges/level-1/vault/a2422c00-1258-4462-998d-c93bc5d54e4c/default-style_1-2ff3a6964bbc.png?v=1784054836" alt="The Code Registry Verification Badge" width="100" />
 </a>
+<!-- markdownlint-enable MD013 MD033 -->
 
-A centralized repository for managing notification service configurations for my homelab. This project aims to provide ready-to-use configurations for various services, making it easier to set up and maintain notifications across different applications.
+Deployment documentation, scripts, and configuration examples for centralized
+homelab notifications.
 
-## 📖 About The Project
+## About the Project
 
-In a homelab environment, having a reliable notification system is crucial for monitoring services, receiving alerts, and staying informed about system health. This repository contains configurations for popular notification services that can be integrated with various applications like monitoring tools, automation scripts, and more.
+The repository provides a maintained Apprise API deployment for Debian 12 with
+Podman. It supports rootful and rootless containers, system and user systemd
+services, persistent storage, helper scripts, and an optional Mailrise SMTP
+relay for applications that can send email but do not support Apprise directly.
 
-The goal is to have a single source of truth for these configurations, making them easy to update, share, and deploy.
+The `email/` directory also reserves provider-specific scaffolding for future
+Mailgun and SMTP2GO configurations. Those directories currently contain
+placeholders, not ready-to-deploy provider configurations.
 
-### Services Covered
+## Included Services
 
-Currently, this repository includes configurations for:
+- **[Apprise API](../apprise-api/README.md):** A centralized REST API for
+  sending notifications through Apprise-supported services.
+- **[Mailrise](../apprise-api/docs/CONFIGURATION.md#configure-local-applications-and-services):**
+  An optional SMTP-to-Apprise relay included with the Apprise API installer.
+- **[Mailgun scaffolding](../email/Mailgun/):** Reserved directories for future
+  Mailgun configuration, scripts, and templates.
+- **[SMTP2GO scaffolding](../email/SMTP2GO/):** Reserved directories for future
+  SMTP2GO configuration, scripts, and templates.
 
-* **[Apprise API](../apprise-api/)**: A centralized REST API for sending notifications to 100+ notification services. Automated installation and deployment for Debian 12 on Raspberry Pi 5 with Podman. Supports rootless mode for enhanced security.
-* **[Mailgun](../email/Mailgun/)**: An email automation service.
-* **[SMTP2GO](../email/SMTP2GO/)**: An SMTP provider for sending emails.
-
-## 📁 Project Structure
+## Project Structure
 
 ```text
 homelab-notification/
-├── apprise-api/                       # Centralized notification API server
-│   ├── install-apprise-podman.sh      # Main installation script
-│   ├── podman-compose.yml             # Docker Compose alternative deployment
-│   ├── .gitignore                     # Git ignore patterns
-│   ├── README.md                      # Project overview
-│   ├── INSTALLATION.md                # Step-by-step installation guide
-│   ├── CONFIGURATION.md               # Configuration & environment variables
-│   ├── TROUBLESHOOTING.md             # Common issues & solutions
-│   ├── ROOTLESS.md                    # Rootless Podman mode guide
-│   ├── QUICK_START.md                 # 30-second quickstart
-│   ├── INDEX.md                       # Documentation index
-│   ├── UPDATES.md                     # Migration & changelog
-│   ├── scripts/                       # Utility scripts
-│   │   ├── logs.sh                    # Container log viewer
-│   │   ├── health-check.sh            # API health monitoring
-│   │   └── backup-config.sh           # Backup & restore tool
-│   ├── examples/                      # Usage examples
-│   │   ├── send-notification.sh       # API usage example
-│   │   ├── notification-urls.txt      # Supported service URL patterns
-│   │   └── api-examples.json          # REST endpoint documentation
-│   ├── docs/                          # Additional documentation
-│   ├── configs/                       # Configuration templates
-│   └── tests/                         # Test files
+├── .github/
+│   ├── README.md
+│   ├── CONTRIBUTING.md
+│   ├── SECURITY.md
+│   └── ISSUE_TEMPLATE/
+├── apprise-api/
+│   ├── README.md
+│   ├── install-apprise-podman.sh
+│   ├── podman-compose.yml
+│   ├── configuration/
+│   │   └── mailrise.conf
+│   ├── docs/
+│   │   ├── INDEX.md
+│   │   ├── QUICK_START.md
+│   │   ├── INSTALLATION.md
+│   │   ├── CONFIGURATION.md
+│   │   ├── ROOTLESS.md
+│   │   └── TROUBLESHOOTING.md
+│   ├── examples/
+│   │   ├── api-examples.json
+│   │   ├── notification-urls.txt
+│   │   └── send-notification.sh
+│   └── scripts/
+│       ├── backup-config.sh
+│       ├── health-check.sh
+│       └── logs.sh
 ├── email/
-│   ├── Mailgun/                       # Mailgun SMTP configuration
-│   └── SMTP2GO/                       # SMTP2GO provider configuration
-└── docs/                              # Repository documentation
+│   ├── Mailgun/
+│   │   ├── configs/
+│   │   ├── scripts/
+│   │   └── templates/
+│   └── SMTP2GO/
+│       ├── configs/
+│       ├── scripts/
+│       └── templates/
+└── LICENSE.md
 ```
 
-## 🚀 Quick Start
+## Apprise API Quick Start
 
-### For Apprise API
+Run commands from the repository root.
 
-Apprise API provides a unified REST interface for sending notifications to 100+ services. To get started:
+### Rootful Systemd Service
 
 ```bash
 cd apprise-api
 sudo ./install-apprise-podman.sh --systemd
-curl http://localhost:8000/docs  # View API documentation
+sudo systemctl enable --now apprise-api
+curl -fsS -H 'Accept: application/json' http://localhost:8000/status | jq .
 ```
 
-See [apprise-api/README.md](../apprise-api/README.md) for detailed setup and configuration.
+The installer creates systemd units but does not enable or start them. Review
+the generated unit before running the explicit `enable --now` command.
 
-### For Email Services
-
-Configure your preferred email service (Mailgun or SMTP2GO) in the [`email/`](../email/) directory.
-
-<!-- **Example Usage:**
-
-_This section is a placeholder. You can add specific examples of how to integrate these configurations with tools like `ntfy`, `Prometheus Alertmanager`, or custom scripts._
+### Rootless Systemd Service
 
 ```bash
-# Example of how a user might integrate a configuration
-# This is just a conceptual example
-cp mailgun/config.yaml /path/to/your/application/
-# Remember to replace placeholder values in the config file!
-``` -->
+cd apprise-api
+./install-apprise-podman.sh --rootless --systemd
+systemctl --user enable --now apprise-api
+loginctl enable-linger "$USER"
+curl -fsS -H 'Accept: application/json' http://localhost:8000/status | jq .
+```
 
-## 🤝 Contributing
+Install the rootless prerequisites first as described in the
+[rootless guide](../apprise-api/docs/ROOTLESS.md).
 
-Contributions are what make the open-source community such an amazing place to learn, inspire, and create. Any contributions you make are **greatly appreciated**.
+### Apprise API with Mailrise
 
-As this is a project I maintain in my spare time, your help is invaluable. Please see the contributing guidelines for more information on how to get started. You can also just open an issue with the tag "enhancement".
+```bash
+cd apprise-api
+sudo ./install-apprise-podman.sh \
+  --systemd \
+  --mailrise \
+  --mailrise-apprise-key your_apprise_config_key
 
-1. Fork the Project
-2. Create your Feature Branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your Changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the Branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
+sudo systemctl enable --now apprise-api mailrise
+```
 
-## 📜 License
+Mailrise listens on host port `8025` by default. Local applications select a
+Mailrise route by sending to a recipient such as `notify@mailrise.xyz`. See
+[Configure Local Applications and Services](../apprise-api/docs/CONFIGURATION.md#configure-local-applications-and-services)
+for DNS, SMTP client, routing, and network-security guidance.
 
-Distributed under the GNU General Public License v3.0. See `LICENSE.md` for more information.
+The Apprise API configuration interface is available at
+`http://localhost:8000/`. The standard container does not expose Swagger at
+`/docs` or ReDoc at `/redoc`.
 
-## 🛡️ Security Policy
+## Send a Test Notification
 
-The security of this project is a top priority. If you discover a security vulnerability, please follow the guidelines in our Security Policy to report it.
+A stateless request supplies an Apprise notification URL in the payload:
+
+```bash
+curl -X POST http://localhost:8000/notify \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "title": "Hello from Apprise",
+    "body": "Test notification",
+    "urls": ["discord://webhook_id/webhook_token"]
+  }'
+```
+
+For persistent configurations, add a configuration key and send through it:
+
+```bash
+curl -X POST http://localhost:8000/add/home-alerts \
+  -H 'Content-Type: application/json' \
+  -d '{"urls":["discord://webhook_id/webhook_token"]}'
+
+curl -X POST http://localhost:8000/notify/home-alerts \
+  -H 'Content-Type: application/json' \
+  -d '{"title":"Alert","body":"System alert"}'
+```
+
+The value after `/add` or `/notify` is a configuration key. Apprise tags are
+optional filters within a configuration and are not API keys.
+
+## Documentation
+
+- [Apprise API overview](../apprise-api/README.md)
+- [Documentation index](../apprise-api/docs/INDEX.md)
+- [Quick start](../apprise-api/docs/QUICK_START.md)
+- [Installation guide](../apprise-api/docs/INSTALLATION.md)
+- [Configuration and Mailrise guide](../apprise-api/docs/CONFIGURATION.md)
+- [Rootless Podman guide](../apprise-api/docs/ROOTLESS.md)
+- [Troubleshooting guide](../apprise-api/docs/TROUBLESHOOTING.md)
+
+## Support
+
+Route issues according to which project owns the affected material:
+
+- Problems with information, documentation, scripts, configurations, examples,
+  or other files provided by this repository belong in the
+  [homelab-notification issue tracker](https://github.com/Racerx323/homelab-notification/issues/new/choose).
+- Upstream Apprise API defects belong in the
+  [Apprise API issue tracker](https://github.com/caronc/apprise-api/issues).
+- Notification-service, Apprise URL, or core Apprise defects belong in the
+  [Apprise issue tracker](https://github.com/caronc/apprise/issues).
+- Upstream Mailrise SMTP processing or routing defects belong in the
+  [Mailrise issue tracker](https://github.com/YoRyan/mailrise/issues).
+
+If a repository-provided script or configuration causes an Apprise API or
+Mailrise problem, report it to `homelab-notification`.
+
+## Security
+
+Do not report security vulnerabilities through a public issue. Review the
+[Security Policy](SECURITY.md) for supported versions and confidential
+reporting instructions.
+
+## Contributing
+
+Contributions to scripts, documentation, configuration examples, and provider
+scaffolding are welcome. Review the [contributing guidelines](CONTRIBUTING.md),
+then use an appropriate issue template or open a focused pull request.
+
+## License
+
+This repository is licensed under the GNU General Public License v3.0. See
+[LICENSE.md](../LICENSE.md). Apprise API, Apprise, Mailrise, Podman, and other
+integrated services retain their respective upstream licenses.

@@ -38,7 +38,7 @@ log_info() {
 }
 
 show_help() {
-    cat << EOF
+    cat <<EOF
 Apprise API - View Logs
 
 Usage: $0 [OPTIONS]
@@ -80,8 +80,7 @@ EOF
 
 validate_service_name() {
     case "$SERVICE_NAME" in
-        apprise-api|mailrise)
-            ;;
+        apprise-api | mailrise) ;;
         *)
             echo "Error: unsupported service '$SERVICE_NAME'"
             echo "Supported services: apprise-api, mailrise"
@@ -93,11 +92,11 @@ validate_service_name() {
 # Parse arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
-        -f|--follow)
+        -f | --follow)
             FOLLOW=true
             shift
             ;;
-        -n|--lines)
+        -n | --lines)
             if [[ $# -lt 2 || -z "$2" ]]; then
                 echo "Error: $1 requires a line count"
                 show_help
@@ -106,11 +105,11 @@ while [[ $# -gt 0 ]]; do
             LINES="$2"
             shift 2
             ;;
-        -e|--errors)
+        -e | --errors)
             ERRORS_ONLY=true
             shift
             ;;
-        -s|--since)
+        -s | --since)
             if [[ $# -lt 2 || -z "$2" ]]; then
                 echo "Error: $1 requires a time value"
                 show_help
@@ -141,7 +140,7 @@ while [[ $# -gt 0 ]]; do
             SERVICE_NAME="mailrise"
             shift
             ;;
-        -h|--help)
+        -h | --help)
             show_help
             exit 0
             ;;
@@ -157,7 +156,7 @@ validate_service_name
 
 # Check if container or systemd exists
 if [[ "$USE_SYSTEMD" == true ]]; then
-    if ! command -v journalctl &> /dev/null; then
+    if ! command -v journalctl &>/dev/null; then
         log_info "journalctl not found, falling back to podman logs"
         USE_SYSTEMD=false
     fi
@@ -182,26 +181,26 @@ echo ""
 if [[ "$USE_SYSTEMD" == true ]]; then
     # Using systemd journal
     log_info "Showing systemd journal logs for $SERVICE_NAME"
-    
+
     JOURNALCTL_ARGS=("-u" "$SERVICE_NAME")
     if [[ "$USE_USER_SYSTEMD" == true ]]; then
         JOURNALCTL_ARGS=("--user" "${JOURNALCTL_ARGS[@]}")
     fi
-    
+
     if [[ "$FOLLOW" == true ]]; then
         JOURNALCTL_ARGS+=("-f")
     else
         JOURNALCTL_ARGS+=("-n" "$LINES")
     fi
-    
+
     if [[ -n "$SINCE" ]]; then
         JOURNALCTL_ARGS+=("--since" "$SINCE")
     fi
-    
+
     if [[ "$ERRORS_ONLY" == true ]]; then
         JOURNALCTL_ARGS+=("-p" "err")
     fi
-    
+
     if [[ "$USE_USER_SYSTEMD" == true ]]; then
         journalctl "${JOURNALCTL_ARGS[@]}"
     else
@@ -210,13 +209,13 @@ if [[ "$USE_SYSTEMD" == true ]]; then
 else
     # Using podman logs
     PODMAN_ARGS=()
-    
+
     if [[ "$FOLLOW" == true ]]; then
         PODMAN_ARGS+=("-f")
     else
         PODMAN_ARGS+=("--tail" "$LINES")
     fi
-    
+
     if [[ "$ERRORS_ONLY" == true ]]; then
         log_info "Filtering for errors..."
         podman logs "${PODMAN_ARGS[@]}" "$SERVICE_NAME" 2>&1 | grep -i "error\|exception\|fail\|traceback\|warning" || true

@@ -168,7 +168,7 @@ cleanup_on_exit() {
 
     log_error "Installation failed with exit code $exit_code. Cleaning up artifacts created by this run..."
 
-    if command -v podman &> /dev/null; then
+    if command -v podman &>/dev/null; then
         if [[ $MAILRISE_CONTAINER_CREATED == true ]] && podman container exists "$MAILRISE_CONTAINER_NAME" 2>/dev/null; then
             podman stop "$MAILRISE_CONTAINER_NAME" || true
             podman rm "$MAILRISE_CONTAINER_NAME" || true
@@ -195,7 +195,7 @@ cleanup_on_exit() {
         rmdir "$(dirname "$MAILRISE_CONFIG_FILE")" 2>/dev/null || true
     fi
 
-    if [[ $NOTIFY_NETWORK_CREATED == true ]] && command -v podman &> /dev/null; then
+    if [[ $NOTIFY_NETWORK_CREATED == true ]] && command -v podman &>/dev/null; then
         podman network rm "$NOTIFY_NETWORK_NAME" >/dev/null 2>&1 || true
         log_info "Removed Podman network created by this run: $NOTIFY_NETWORK_NAME"
     fi
@@ -225,7 +225,7 @@ check_privileges() {
         log_error "This script must be run as root (use sudo) or with --rootless flag"
         exit 1
     fi
-    
+
     if [[ $ROOTLESS_MODE == true && $EUID -eq 0 ]]; then
         log_error "Rootless mode cannot be used with sudo. Run as regular user."
         exit 1
@@ -236,7 +236,7 @@ detect_os_timezone() {
     local detected_timezone=""
     local localtime_target=""
 
-    if command -v timedatectl &> /dev/null; then
+    if command -v timedatectl &>/dev/null; then
         detected_timezone="$(timedatectl show --property=Timezone --value 2>/dev/null || true)"
     fi
 
@@ -292,7 +292,7 @@ mailrise_account() {
 }
 
 check_podman() {
-    if ! command -v podman &> /dev/null; then
+    if ! command -v podman &>/dev/null; then
         log_error "podman is not installed"
         if [[ $ROOTLESS_MODE == true ]]; then
             log_error "Install Podman and rootless prerequisites as an administrator before using --rootless"
@@ -302,7 +302,7 @@ check_podman() {
         apt-get update
         apt-get install -y podman
     fi
-    
+
     local podman_version
     podman_version=$(podman --version | grep -oP '(?<=version )[0-9]+\.[0-9]+\.[0-9]+')
     log_info "Podman version: $podman_version"
@@ -317,11 +317,11 @@ install_dependencies() {
         jq \
         wget \
         ca-certificates
-    
+
     log_info "Updating CA certificates for Docker Hub access..."
     apt-get install -y --reinstall ca-certificates
     update-ca-certificates --fresh
-    
+
     log_info "CA certificates updated successfully"
 }
 
@@ -332,7 +332,7 @@ setup_apprise_directory() {
     else
         log_info "Setting up Apprise data directory: $APPRISE_DATA_DIR"
     fi
-    
+
     if [[ ! -d "$APPRISE_DATA_DIR" ]]; then
         APPRISE_DATA_DIR_CREATED=true
     fi
@@ -398,7 +398,7 @@ setup_mailrise_config() {
         MAILRISE_CONFIG_TARGET_PREEXISTED=true
     fi
 
-    cat > "$target_config_file" << EOF
+    cat >"$target_config_file" <<EOF
 configs:
   $MAILRISE_CONFIG_NAME:
     urls:
@@ -422,7 +422,7 @@ create_notify_network() {
 pull_apprise_image() {
     log_info "Pulling official Apprise API Docker image from Docker Hub..."
     log_info "Image: $APPRISE_IMAGE"
-    
+
     # Pull the official caronc/apprise image (unauthenticated)
     if podman pull "$APPRISE_IMAGE"; then
         log_info "Successfully pulled: $APPRISE_IMAGE"
@@ -488,7 +488,7 @@ create_systemd_service() {
     local service_dir
     local enable_cmd
     local start_cmd
-    
+
     if [[ $ROOTLESS_MODE == true ]]; then
         service_dir="$HOME/.config/systemd/user"
         service_file="$service_dir/apprise-api.service"
@@ -509,17 +509,17 @@ create_systemd_service() {
         APPRISE_SERVICE_BACKUP_FILE="$service_file.pre-install.$(date +%Y%m%d%H%M%S).bak"
         cp -p "$service_file" "$APPRISE_SERVICE_BACKUP_FILE"
     fi
-    
+
     mkdir -p "$service_dir"
-    
+
     # Determine WantedBy target
     local wanted_by="multi-user.target"
     if [[ $ROOTLESS_MODE == true ]]; then
         wanted_by="default.target"
     fi
-    
+
     {
-        cat << EOF
+        cat <<EOF
 [Unit]
 Description=Apprise API Service
 After=network-online.target
@@ -556,7 +556,7 @@ EOF
         if [[ $ENABLE_MAILRISE == true ]]; then
             echo "    --network $NOTIFY_NETWORK_NAME \\"
         fi
-        cat << EOF
+        cat <<EOF
     --log-driver journald \\
     $APPRISE_IMAGE
 
@@ -565,10 +565,10 @@ ExecStop=/usr/bin/podman stop -t 10 $APPRISE_CONTAINER_NAME
 [Install]
 WantedBy=$wanted_by
 EOF
-    } > "$service_file"
-    
+    } >"$service_file"
+
     chmod 644 "$service_file"
-    
+
     if [[ $ROOTLESS_MODE == true ]]; then
         systemctl --user daemon-reload
         log_info "User-level systemd service created successfully"
@@ -576,7 +576,7 @@ EOF
         systemctl daemon-reload
         log_info "System-level systemd service created successfully"
     fi
-    
+
     log_info "Enable with: $enable_cmd"
     log_info "Start with: $start_cmd"
 }
@@ -612,7 +612,7 @@ create_mailrise_systemd_service() {
 
     mkdir -p "$service_dir"
 
-    cat > "$service_file" << EOF
+    cat >"$service_file" <<EOF
 [Unit]
 Description=Mailrise SMTP notification relay
 After=network-online.target apprise-api.service
@@ -666,7 +666,7 @@ run_container_direct() {
     if [[ $ROOTLESS_MODE == true ]]; then
         userns_args=(--userns keep-id)
     fi
-    
+
     podman run -d \
         --name "$APPRISE_CONTAINER_NAME" \
         --user "$APPRISE_USER" \
@@ -691,7 +691,7 @@ run_container_direct() {
         --log-driver=journald \
         "$APPRISE_IMAGE"
     APPRISE_CONTAINER_CREATED=true
-    
+
     log_info "Container started successfully"
     log_info "Apprise API is running on http://localhost:$APPRISE_PORT"
 }
@@ -714,17 +714,17 @@ run_mailrise_container_direct() {
 
 verify_installation() {
     log_info "Verifying installation..."
-    
+
     sleep 3
-    
+
     if podman container exists "$APPRISE_CONTAINER_NAME" 2>/dev/null; then
         local status
         status=$(podman container inspect "$APPRISE_CONTAINER_NAME" --format='{{.State.Status}}')
         if [[ "$status" == "running" ]]; then
             log_info "Container is running"
-            
+
             # Try to reach the API
-            if curl -fsS "http://localhost:$APPRISE_PORT/status" > /dev/null 2>&1; then
+            if curl -fsS "http://localhost:$APPRISE_PORT/status" >/dev/null 2>&1; then
                 log_info "API is responding"
             else
                 log_warn "Could not verify API response (may take a moment to start)"
@@ -750,7 +750,7 @@ verify_installation() {
 }
 
 show_info() {
-    cat << EOF
+    cat <<EOF
 
 ${GREEN}========== Apprise API Installation Complete ==========${NC}
 
@@ -769,7 +769,7 @@ Interpret Emojis:   $APPRISE_INTERPRET_EMOJIS
 Mode:               $(if [[ $ROOTLESS_MODE == true ]]; then echo "Rootless (user)"; else echo "Rootful (system)"; fi)
 Mailrise:           $(if [[ $ENABLE_MAILRISE == true ]]; then echo "Enabled"; else echo "Disabled"; fi)
 $(if [[ $ENABLE_MAILRISE == true ]]; then
-cat << MAILRISE_SUMMARY
+        cat <<MAILRISE_SUMMARY
 Mailrise Image:     $MAILRISE_IMAGE
 Mailrise SMTP Port: $MAILRISE_PORT
 Mailrise Config:    $MAILRISE_CONFIG_FILE
@@ -778,7 +778,7 @@ $(if [[ -n $MAILRISE_EXAMPLE_CONFIG_FILE && -f $MAILRISE_EXAMPLE_CONFIG_FILE ]];
 Podman Network:     $NOTIFY_NETWORK_NAME
 Apprise URL:        apprise://$APPRISE_CONTAINER_NAME:8000/$MAILRISE_APPRISE_CONFIG_KEY
 MAILRISE_SUMMARY
-fi)
+    fi)
 
 ${GREEN}Useful Commands:${NC}
 
@@ -795,7 +795,7 @@ Remove container:
   podman rm -f $APPRISE_CONTAINER_NAME
 
 $(if [[ $ENABLE_MAILRISE == true ]]; then
-cat << MAILRISE_COMMANDS
+        cat <<MAILRISE_COMMANDS
 View Mailrise logs:
   podman logs -f $MAILRISE_CONTAINER_NAME
 
@@ -806,7 +806,7 @@ Start Mailrise:
   podman start $MAILRISE_CONTAINER_NAME
 
 MAILRISE_COMMANDS
-fi)
+    fi)
 
 Access API:
   http://localhost:$APPRISE_PORT
@@ -815,7 +815,7 @@ Configuration Interface:
   http://localhost:$APPRISE_PORT/
 
 $(if [[ $ROOTLESS_MODE == true ]]; then
-cat << ROOTLESS
+        cat <<ROOTLESS
 ${GREEN}Rootless Mode Notes:${NC}
 
 - Container runs as your user ($(whoami))
@@ -824,7 +824,7 @@ ${GREEN}Rootless Mode Notes:${NC}
 - Use 'podman' commands directly (no sudo needed for user containers)
 
 $(if [[ $ENABLE_SYSTEMD == true ]]; then
-cat << ROOTLESS_SYSTEMD
+            cat <<ROOTLESS_SYSTEMD
 ${GREEN}User Systemd Management:${NC}
 
 Enable auto-start:
@@ -839,7 +839,7 @@ Stop service:
 View service logs:
   journalctl --user -u apprise-api -f
 $(if [[ $ENABLE_MAILRISE == true ]]; then
-cat << ROOTLESS_MAILRISE_SYSTEMD
+                cat <<ROOTLESS_MAILRISE_SYSTEMD
 
 Enable Mailrise auto-start:
   systemctl --user enable mailrise
@@ -850,15 +850,15 @@ Start Mailrise service:
 View Mailrise service logs:
   journalctl --user -u mailrise -f
 ROOTLESS_MAILRISE_SYSTEMD
-fi)
+            fi)
 
 Enable lingering (run services even when not logged in):
   loginctl enable-linger
 ROOTLESS_SYSTEMD
-fi)
+        fi)
 ROOTLESS
-else
-cat << ROOTFUL
+    else
+        cat <<ROOTFUL
 ${GREEN}Systemd Management (if enabled):${NC}
 
 Enable auto-start:
@@ -873,7 +873,7 @@ Stop service:
 View service logs:
   journalctl -u apprise-api -f
 $(if [[ $ENABLE_MAILRISE == true ]]; then
-cat << ROOTFUL_MAILRISE_SYSTEMD
+            cat <<ROOTFUL_MAILRISE_SYSTEMD
 
 Enable Mailrise auto-start:
   systemctl enable mailrise
@@ -884,9 +884,9 @@ Start Mailrise service:
 View Mailrise service logs:
   journalctl -u mailrise -f
 ROOTFUL_MAILRISE_SYSTEMD
-fi)
+        fi)
 ROOTFUL
-fi)
+    fi)
 
 ${GREEN}========================================================${NC}
 
@@ -913,7 +913,7 @@ while [[ $# -gt 0 ]]; do
                 log_error "--port requires a port number"
                 exit 1
             fi
-            if [[ ! "$2" =~ ^[0-9]+$ ]] || (( $2 < 1 || $2 > 65535 )); then
+            if [[ ! "$2" =~ ^[0-9]+$ ]] || (($2 < 1 || $2 > 65535)); then
                 log_error "Invalid port: $2 (must be 1-65535)"
                 exit 1
             fi
@@ -929,7 +929,7 @@ while [[ $# -gt 0 ]]; do
                 log_error "--mailrise-port requires a port number"
                 exit 1
             fi
-            if [[ ! "$2" =~ ^[0-9]+$ ]] || (( $2 < 1 || $2 > 65535 )); then
+            if [[ ! "$2" =~ ^[0-9]+$ ]] || (($2 < 1 || $2 > 65535)); then
                 log_error "Invalid Mailrise port: $2 (must be 1-65535)"
                 exit 1
             fi
@@ -962,7 +962,7 @@ main() {
     else
         log_info "Starting Apprise API installation on Debian 12 for Raspberry Pi 5"
     fi
-    
+
     log_info "Using official Apprise API Docker image: $APPRISE_IMAGE"
     if [[ $ENABLE_MAILRISE == true ]]; then
         log_info "Mailrise installation enabled"
@@ -972,7 +972,7 @@ main() {
     configure_timezone
     configure_apprise_user
     check_podman
-    
+
     # Only install system dependencies if not rootless
     if [[ $ROOTLESS_MODE == false ]]; then
         install_dependencies
@@ -980,13 +980,13 @@ main() {
         log_info "Rootless mode: skipping system dependency installation"
         log_info "Ensure podman and ca-certificates are installed"
     fi
-    
+
     setup_apprise_directory
     if [[ $ENABLE_MAILRISE == true ]]; then
         setup_mailrise_config
         create_notify_network
     fi
-    
+
     # Pull the official Docker image
     if pull_apprise_image; then
         log_info "Official Apprise API Docker image loaded"
@@ -1002,12 +1002,12 @@ main() {
             exit 1
         fi
     fi
-    
+
     stop_existing_container
     if [[ $ENABLE_MAILRISE == true ]]; then
         stop_existing_mailrise_container
     fi
-    
+
     if [[ $ENABLE_SYSTEMD == true ]]; then
         create_systemd_service
         if [[ $ENABLE_MAILRISE == true ]]; then
@@ -1036,11 +1036,11 @@ main() {
         fi
         verify_installation
     fi
-    
+
     show_info
     cleanup_success_backups || true
     INSTALL_COMPLETED=true
-    
+
     log_info "Installation completed successfully!"
 }
 

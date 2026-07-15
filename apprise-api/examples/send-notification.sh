@@ -55,7 +55,7 @@ log_info "  Type: $APPRISE_TYPE"
 
 # Send notification
 # Build JSON safely using jq to prevent injection from user-supplied strings
-if command -v jq &> /dev/null; then
+if command -v jq &>/dev/null; then
     PAYLOAD=$(jq -n \
         --arg title "$APPRISE_TITLE" \
         --arg body "$APPRISE_BODY" \
@@ -67,8 +67,8 @@ else
 fi
 
 RESPONSE=$(curl -s -X POST "$APPRISE_URL/notify/$APPRISE_KEY" \
-  -H "Content-Type: application/json" \
-  -d "$PAYLOAD")
+    -H "Content-Type: application/json" \
+    -d "$PAYLOAD")
 
 # Check response
 if echo "$RESPONSE" | grep -q '"status":"ok"'; then

@@ -113,23 +113,23 @@ fi
 
 # Create backup. Use the current user when possible and fall back to sudo only
 # when the selected rootful paths are not readable.
-if tar czf "$BACKUP_PATH" "${BACKUP_PATHS[@]}" 2>/dev/null \
-    || sudo tar czf "$BACKUP_PATH" "${BACKUP_PATHS[@]}"; then
+if tar czf "$BACKUP_PATH" "${BACKUP_PATHS[@]}" 2>/dev/null ||
+    sudo tar czf "$BACKUP_PATH" "${BACKUP_PATHS[@]}"; then
     # Fix permissions if the sudo fallback created the archive.
     sudo chown "$(id -u):$(id -g)" "$BACKUP_PATH" 2>/dev/null || true
-    
+
     # Get file size
     SIZE=$(du -h "$BACKUP_PATH" | cut -f1)
-    
+
     log_info "Backup created successfully!"
     log_info "File: $BACKUP_FILENAME"
     log_info "Size: $SIZE"
     log_info "Path: $BACKUP_PATH"
-    
+
     # Create checksum for integrity verification
-    (cd "$BACKUP_DIR" && sha256sum "$BACKUP_FILENAME" > "$BACKUP_FILENAME.sha256")
+    (cd "$BACKUP_DIR" && sha256sum "$BACKUP_FILENAME" >"$BACKUP_FILENAME.sha256")
     log_info "Checksum: $BACKUP_FILENAME.sha256"
-    
+
     # Retention information
     log_info ""
     log_info "Backup retention recommendations:"
