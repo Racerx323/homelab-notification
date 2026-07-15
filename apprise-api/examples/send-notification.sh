@@ -3,7 +3,7 @@
 # Apprise API - Send Notification Example Script
 #
 # This script demonstrates how to send notifications via Apprise API
-# Usage: ./send-notification.sh [TAG] [TITLE] [BODY] [TYPE]
+# Usage: ./send-notification.sh [KEY] [TITLE] [BODY] [TYPE]
 #
 # Examples:
 #   ./send-notification.sh alerts "System Update" "Debian packages updated" info
@@ -15,7 +15,7 @@ set -euo pipefail
 
 # Configuration
 APPRISE_URL="${APPRISE_URL:-http://localhost:8000}"
-APPRISE_TAG="${1:-apprise}"
+APPRISE_KEY="${1:-apprise}"
 APPRISE_TITLE="${2:-Notification}"
 APPRISE_BODY="${3:-This is a test notification}"
 APPRISE_TYPE="${4:-info}"
@@ -23,7 +23,6 @@ APPRISE_TYPE="${4:-info}"
 # Color output
 GREEN='\033[0;32m'
 RED='\033[0;31m'
-YELLOW='\033[1;33m'
 NC='\033[0m'
 
 log_info() {
@@ -35,9 +34,9 @@ log_error() {
 }
 
 # Validate inputs
-if [[ -z "$APPRISE_TAG" ]]; then
-    log_error "Tag is required"
-    echo "Usage: $0 TAG [TITLE] [BODY] [TYPE]"
+if [[ -z "$APPRISE_KEY" ]]; then
+    log_error "Configuration key is required"
+    echo "Usage: $0 KEY [TITLE] [BODY] [TYPE]"
     exit 1
 fi
 
@@ -49,7 +48,7 @@ fi
 
 log_info "Sending notification..."
 log_info "  URL: $APPRISE_URL"
-log_info "  Tag: $APPRISE_TAG"
+log_info "  Configuration key: $APPRISE_KEY"
 log_info "  Title: $APPRISE_TITLE"
 log_info "  Body: $APPRISE_BODY"
 log_info "  Type: $APPRISE_TYPE"
@@ -67,7 +66,7 @@ else
     exit 1
 fi
 
-RESPONSE=$(curl -s -X POST "$APPRISE_URL/notify/$APPRISE_TAG" \
+RESPONSE=$(curl -s -X POST "$APPRISE_URL/notify/$APPRISE_KEY" \
   -H "Content-Type: application/json" \
   -d "$PAYLOAD")
 

@@ -1,11 +1,11 @@
 #!/bin/bash
 #
 # Apprise API Installation and Deployment Script for Podman
-# Designed for Debian 12 on Raspberry Pi 5 with podman 4.3.1
+# Designed for Debian 12 with Podman
 #
 # This script:
 #   - Installs dependencies
-#   - Pulls/builds the Apprise API container
+#   - Pulls the official Apprise API container image
 #   - Configures and runs the container
 #   - Optionally creates a systemd service
 #   - Uses hardened runtime settings and persistent /config, /plugin, /attach state
@@ -17,7 +17,7 @@
 # Options:
 #   --help              Show this help message
 #   --rootless          Run rootless (no sudo needed, uses ~/.apprise)
-#   --systemd           Create a systemd service for auto-start
+#   --systemd           Create a systemd service (enable/start separately)
 #   --port PORT         Set API port (default: 8000)
 #   --mailrise          Install and configure Mailrise SMTP relay
 #   --mailrise-port PORT
@@ -27,7 +27,8 @@
 #
 # Environment overrides:
 #   APPRISE_IMAGE       Container image (default: docker.io/caronc/apprise:latest)
-#   PUID, PGID          Rootful container user/group (default: 1000:1000)
+#   PUID, PGID          Container user/group (rootful default: 1000:1000;
+#                       rootless default: current uid:gid)
 #   APPRISE_STATEFUL_MODE
 #                       Apprise stateful mode (default: simple)
 #   APPRISE_WORKER_COUNT
@@ -109,7 +110,7 @@ log_error() {
 }
 
 show_help() {
-    sed -n '3,42p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '3,/^$/p' "$0" | sed 's/^# \{0,1\}//'
 }
 
 cleanup_service_file() {
@@ -293,6 +294,10 @@ mailrise_account() {
 check_podman() {
     if ! command -v podman &> /dev/null; then
         log_error "podman is not installed"
+        if [[ $ROOTLESS_MODE == true ]]; then
+            log_error "Install Podman and rootless prerequisites as an administrator before using --rootless"
+            exit 1
+        fi
         log_info "Installing podman..."
         apt-get update
         apt-get install -y podman
@@ -303,43 +308,13 @@ check_podman() {
     log_info "Podman version: $podman_version"
 }
 
-configure_registries() {
-    # Configure registry search for short-name image resolution
-    
-    local registries_conf="/etc/containers/registries.conf"
-    
-    if [[ ! -f "$registries_conf" ]]; then
-        log_warn "Registries config not found: $registries_conf"
-        log_info "Creating registries config..."
-        mkdir -p "$(dirname "$registries_conf")"
-        touch "$registries_conf"
-    fi
-    
-    # Check if [registries.search] section already exists
-    if grep -q "^\[registries\.search\]" "$registries_conf"; then
-        log_info "Registry search already configured"
-        return 0
-    fi
-    
-    log_info "Configuring registry search in: $registries_conf"
-    
-    # Add [registries.search] section with Docker Hub and Quay.io
-    cat >> "$registries_conf" << 'EOF'
-
-[registries.search]
-registries = ['docker.io', 'quay.io']
-EOF
-    
-    log_info "Registry search configuration added successfully"
-    return 0
-}
-
 install_dependencies() {
     log_info "Installing system dependencies..."
     apt-get update
     apt-get install -y \
         podman \
         curl \
+        jq \
         wget \
         ca-certificates
     
@@ -547,20 +522,21 @@ create_systemd_service() {
         cat << EOF
 [Unit]
 Description=Apprise API Service
-After=network.target
-$(if [[ $ROOTLESS_MODE == false ]]; then echo "Wants=podman.service"; fi)
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=3
 
 [Service]
 Type=simple
 Restart=always
 RestartSec=10
-StartLimitInterval=60s
-StartLimitBurst=3
 
 # Run the container with podman
 ExecStart=/usr/bin/podman run --rm \\
     --name $APPRISE_CONTAINER_NAME \\
     --user $APPRISE_USER \\
+$(if [[ $ROOTLESS_MODE == true ]]; then echo "    --userns keep-id \\"; fi)
     --read-only \\
     --security-opt no-new-privileges=true \\
     --cap-drop ALL \\
@@ -639,16 +615,15 @@ create_mailrise_systemd_service() {
     cat > "$service_file" << EOF
 [Unit]
 Description=Mailrise SMTP notification relay
-After=network.target apprise-api.service
-Wants=apprise-api.service
-$(if [[ $ROOTLESS_MODE == false ]]; then echo "Wants=podman.service"; fi)
+After=network-online.target apprise-api.service
+Wants=network-online.target apprise-api.service
+StartLimitIntervalSec=60
+StartLimitBurst=3
 
 [Service]
 Type=simple
 Restart=always
 RestartSec=10
-StartLimitInterval=60s
-StartLimitBurst=3
 
 # Run the container with podman
 ExecStart=/usr/bin/podman run --rm \\
@@ -681,16 +656,21 @@ EOF
 
 run_container_direct() {
     local network_args=()
+    local userns_args=()
 
     log_info "Running Apprise API container..."
 
     if [[ $ENABLE_MAILRISE == true ]]; then
         network_args=(--network "$NOTIFY_NETWORK_NAME")
     fi
+    if [[ $ROOTLESS_MODE == true ]]; then
+        userns_args=(--userns keep-id)
+    fi
     
     podman run -d \
         --name "$APPRISE_CONTAINER_NAME" \
         --user "$APPRISE_USER" \
+        "${userns_args[@]}" \
         --read-only \
         --security-opt no-new-privileges=true \
         --cap-drop ALL \
@@ -744,7 +724,7 @@ verify_installation() {
             log_info "Container is running"
             
             # Try to reach the API
-            if curl -s "http://localhost:$APPRISE_PORT/notify" > /dev/null 2>&1; then
+            if curl -fsS "http://localhost:$APPRISE_PORT/status" > /dev/null 2>&1; then
                 log_info "API is responding"
             else
                 log_warn "Could not verify API response (may take a moment to start)"
@@ -831,8 +811,8 @@ fi)
 Access API:
   http://localhost:$APPRISE_PORT
   
-API Documentation:
-  http://localhost:$APPRISE_PORT/docs
+Configuration Interface:
+  http://localhost:$APPRISE_PORT/
 
 $(if [[ $ROOTLESS_MODE == true ]]; then
 cat << ROOTLESS
@@ -988,8 +968,6 @@ main() {
         log_info "Mailrise installation enabled"
         log_info "Using Mailrise Docker image: $MAILRISE_IMAGE"
     fi
-    log_info "Podman version 4.3.1+"
-    
     check_privileges
     configure_timezone
     configure_apprise_user
@@ -998,10 +976,6 @@ main() {
     # Only install system dependencies if not rootless
     if [[ $ROOTLESS_MODE == false ]]; then
         install_dependencies
-        # Configure registry search for short-name image resolution
-        if ! configure_registries; then
-            log_warn "Registry configuration failed, but continuing..."
-        fi
     else
         log_info "Rootless mode: skipping system dependency installation"
         log_info "Ensure podman and ca-certificates are installed"

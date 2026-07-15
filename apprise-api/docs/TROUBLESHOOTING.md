@@ -1,947 +1,438 @@
 # Apprise API Troubleshooting Guide
 
-Common issues, diagnostics, and solutions for Apprise API on Raspberry Pi 5.
+Diagnose the Apprise API and optional Mailrise deployment supplied by this
+repository.
+
+## Command Conventions
+
+Rootful Podman containers belong to root. Rootless containers belong to the
+user that installed them:
+
+| Deployment | Podman commands | Systemd commands |
+| ---------- | --------------- | ---------------- |
+| Rootful | `sudo podman ...` | `sudo systemctl ...` |
+| Rootless | `podman ...` | `systemctl --user ...` |
+
+Examples in general sections show rootful commands. Remove `sudo` from Podman
+commands and use `systemctl --user` or `journalctl --user` for rootless
+deployments.
 
 ## Table of Contents
 
-- [Container Issues](#container-issues)
-- [Network and Connectivity](#network-and-connectivity)
-- [API Issues](#api-issues)
+- [Initial Diagnostics](#initial-diagnostics)
+- [Installation and Container Issues](#installation-and-container-issues)
+- [Systemd Issues](#systemd-issues)
+- [Network and API Issues](#network-and-api-issues)
+- [Persistent Storage Issues](#persistent-storage-issues)
 - [Notification Delivery](#notification-delivery)
 - [Mailrise Issues](#mailrise-issues)
-- [Performance Issues](#performance-issues)
-- [Storage and Backup Issues](#storage-and-backup-issues)
-- [System Integration Issues](#system-integration-issues)
-- [Getting Help](#getting-help)
+- [Backup and Restore](#backup-and-restore)
+- [Resource Issues](#resource-issues)
+- [Reporting Issues](#reporting-issues)
 
-## Container Issues
+## Initial Diagnostics
 
-### Short-Name Registry Resolution Error
-
-#### Symptom
-
-```text
-Error: short-name "caronc/apprise" did not resolve to an alias and no 
-unqualified-search registries are defined in "/etc/containers/registries.conf"
-```
-
-#### Cause
-
-Debian 12's default Podman installation doesn't configure unqualified-search registries, preventing short-name image pulls.
-
-#### Solutions
-
-**Solution 1: Run the Installer (Automatic)**
-
-The `install-apprise-podman.sh` script automatically configures this:
+Start with the supported status endpoint:
 
 ```bash
-sudo ./install-apprise-podman.sh
+curl -v -H 'Accept: application/json' http://localhost:8000/status
 ```
 
-The installer adds to `/etc/containers/registries.conf`:
+A healthy API returns HTTP `200`. Its JSON status also reports whether
+persistent storage and attachment directories are writable.
 
-```ini
-[registries.search]
-registries = ['docker.io', 'quay.io']
-```
-
-**Solution 2: Manual Configuration**
-
-Add registry search configuration manually:
+Rootful deployment:
 
 ```bash
-# Check current registries.conf
-cat /etc/containers/registries.conf
-
-# Add registry search section (requires sudo)
-sudo tee -a /etc/containers/registries.conf << 'EOF'
-
-[registries.search]
-registries = ['docker.io', 'quay.io']
-EOF
-
-# Verify configuration
-cat /etc/containers/registries.conf
-
-# Try pull again
-podman pull docker.io/caronc/apprise:latest
-
-# Mailrise uses a fully qualified image name
-podman pull docker.io/yoryan/mailrise:latest
+sudo podman ps -a
+sudo podman logs --tail 100 apprise-api
+sudo systemctl status apprise-api
+sudo journalctl -u apprise-api -n 100
 ```
 
-**Solution 3: Use Fully Qualified Image Names**
-
-Temporarily use fully qualified names while troubleshooting:
+Rootless deployment:
 
 ```bash
-# Instead of: podman pull caronc/apprise
-# Use:
-podman pull docker.io/caronc/apprise:latest
+podman ps -a
+podman logs --tail 100 apprise-api
+systemctl --user status apprise-api
+journalctl --user -u apprise-api -n 100
 ```
 
-### Docker Hub Image Pull Fails (Authentication Error)
+## Installation and Container Issues
 
-#### Symptom
+### Container Is Missing After `--systemd` Installation
 
-```text
-Error: denied: requested access to the resource is denied
-unauthorized: authentication required
-```
-
-When running: `podman pull docker.io/caronc/apprise:latest`
-
-#### Diagnosis
+The installer creates service units but does not enable or start them. This is
+expected. Start the generated service:
 
 ```bash
-# Check if Docker Hub is accessible
-ping -c 1 hub.docker.com
-curl -I https://hub.docker.com
+# Rootful
+sudo systemctl enable --now apprise-api
 
-# Check CA certificates
-ls -la /etc/ssl/certs/ca-certificates.crt
-ls -la /usr/local/share/ca-certificates/
-
-# Test curl to Docker Hub
-curl -I https://hub.docker.com
-
-# Check registry configuration
-cat /etc/containers/registries.conf
+# Rootless
+systemctl --user enable --now apprise-api
 ```
 
-#### Solutions
+If Mailrise was installed, include `mailrise` in the command.
 
-**Solution 1: Update CA Certificates (Most Common Fix)**
+### Container Exits Immediately
 
 ```bash
-# Reinstall and update CA certificates
+sudo podman ps -a
+sudo podman logs apprise-api
+sudo podman inspect apprise-api --format '{{json .State}}' | jq .
+```
+
+Common causes include an unwritable bind mount, a port conflict, or invalid
+container options. Check the API host port:
+
+```bash
+sudo ss -ltnp | awk '$4 ~ /:8000$/ {print}'
+sudo podman port apprise-api
+```
+
+Use the configured custom port instead of `8000` when applicable.
+
+### Image Pull Failure
+
+The installer uses fully qualified image names and does not require an
+unqualified registry search configuration:
+
+```bash
+sudo podman pull docker.io/caronc/apprise:latest
+sudo podman pull docker.io/yoryan/mailrise:latest
+```
+
+Do not add the obsolete `[registries.search]` format to
+`/etc/containers/registries.conf`. Current registry configuration uses TOML,
+but no registry change is needed for these fully qualified images.
+
+For TLS or certificate errors:
+
+```bash
 sudo apt-get update
 sudo apt-get install -y --reinstall ca-certificates
 sudo update-ca-certificates --fresh
-
-# Verify update was applied
-sudo update-ca-certificates -v
-
-# Try pull again
-sudo podman pull docker.io/caronc/apprise:latest
+curl -I https://registry-1.docker.io/v2/
 ```
 
-**Solution 2: Check Podman Installation**
+An HTTP `401 Unauthorized` response from the registry endpoint confirms that
+the TLS connection succeeded; registry authentication is a separate concern.
+
+### Short Image Names Fail
+
+Use the complete image name rather than changing global registry policy:
 
 ```bash
-# Verify Podman is installed and working
-podman --version
-podman info
-
-# Try pull again
-sudo podman pull docker.io/caronc/apprise:latest
-```
-
-**Solution 3: Network/Firewall Issues**
-
-```bash
-# Test basic connectivity
-ping -c 1 hub.docker.com
-traceroute hub.docker.com
-
-# Check if system uses HTTP proxy
-echo $http_proxy
-echo $https_proxy
-
-# Configure proxy if needed in /etc/containers/registries.conf
-```
-
-### Container Won't Start
-
-#### Symptom
-
-```
-Container exits immediately after podman start command
-```
-
-#### Diagnosis
-
-```bash
-# Check container status
-podman ps -a
-
-# View error logs
-podman logs apprise-api
-
-# Get detailed error information
-podman inspect apprise-api | grep -A 20 "State"
-```
-
-#### Solutions
-
-```bash
-# Check if image exists
-podman images | grep 'caronc/apprise'
-
-# If missing, pull official image
 podman pull docker.io/caronc/apprise:latest
-
-# Stop and remove old container
-podman stop apprise-api
-podman rm apprise-api
-
-# Restart with current image
-sudo ./install-apprise-podman.sh --systemd
-
-# If Mailrise is enabled, include Mailrise options
-sudo ./install-apprise-podman.sh --systemd --mailrise --mailrise-apprise-key your_apprise_config_key
-
-# Or re-run installation script
-sudo ./install-apprise-podman.sh
 ```
 
-**Solution 2: Check Resource Constraints**
-```bash
-# Check available memory
-free -h
+### Rootless Podman Fails Before Starting a Container
 
-# Check disk space
-df -h
-
-# Check if running out of storage
-df -h /var/lib/apprise
-
-# Rootless installs use:
-df -h "$HOME/.apprise"
-```
-
-Required: ~1GB free disk space, ~256MB available RAM
-
-### Installer Fails and Cleans Up
-
-#### Symptom
-
-```text
-[ERROR] Installation failed with exit code ...
-[INFO] Removed ... created by this run
-```
-
-#### Explanation
-
-The installer has a failure trap. If an Apprise API or Mailrise install fails partway through, it removes artifacts created by that run:
-
-- Newly-created `apprise-api` or `mailrise` containers
-- Newly-created systemd service files
-- Generated Mailrise config/example files
-- Newly-created `notify-network`
-- Empty data/config directories created by the failed run
-
-Existing Mailrise configs, existing service files, and existing Podman networks are preserved. If a service file existed before the run, the installer backs it up before writing and restores it during cleanup.
-
-#### Next Steps
+Check required packages and subordinate IDs:
 
 ```bash
-# Review the original failure above the cleanup logs
-podman ps -a
-podman network ls
-sudo systemctl status apprise-api
-sudo systemctl status mailrise
+command -v podman newuidmap newgidmap
+getent subuid "$USER"
+getent subgid "$USER"
+podman info --debug
 ```
 
-**Solution 3: Clean and Restart**
+Rootless Podman does not require membership in a `podman` group. If subordinate
+IDs are missing, an administrator must assign unique ranges. After changing
+them, stop the user's containers and run:
 
 ```bash
-# Stop container
-podman stop apprise-api
-
-# Remove container
-podman rm apprise-api
-
-# Clean up unused images/containers
-podman system prune -a
-
-# Reinstall
-sudo ./install-apprise-podman.sh --systemd
+podman system migrate
 ```
 
-### Container Keeps Restarting
+### Rootless Bind Mount Is Not Writable
 
-#### Symptom
+Verify the generated container uses `keep-id` and the data belongs to the
+current user:
 
 ```bash
-podman ps shows container with restart policy
-Container keeps restarting every few seconds
+podman inspect apprise-api --format '{{.HostConfig.UsernsMode}} {{.Config.User}}'
+ls -ld ~/.apprise ~/.apprise/config ~/.apprise/plugin ~/.apprise/attach
 ```
 
-#### Diagnosis
+The namespace mode should be `keep-id`. Back up locally modified service files,
+then re-run the current installer to regenerate an older unit.
+
+### Avoid Broad Podman Cleanup
+
+Do not use `podman system prune -a` as a routine fix; it affects every unused
+container and image owned by that Podman user. Remove only this deployment's
+known resources after reviewing them:
 
 ```bash
-# View container events
-podman events --filter container=apprise-api
-
-# Check logs for crash message
-podman logs --tail 50 apprise-api
-
-# Check system resources
-podman stats apprise-api
+sudo podman ps -a --filter name=apprise-api --filter name=mailrise
+sudo podman rm -f apprise-api mailrise
 ```
 
-#### Solutions
+Ignore a missing Mailrise container when Mailrise is not installed.
 
-**Solution 1: Check Memory Limits**
+## Systemd Issues
 
-```bash
-# If using systemd with memory limit, increase it
-sudo nano /etc/systemd/system/apprise-api.service
+### Service Does Not Start
 
-# Change/add:
-# MemoryLimit=512M
-
-# Reload and restart
-sudo systemctl daemon-reload
-sudo systemctl restart apprise-api
-```
-
-**Solution 2: Disable Automatic Restart (Temporary)**
+Rootful:
 
 ```bash
-# Edit systemd service
-sudo nano /etc/systemd/system/apprise-api.service
-
-# Change Restart from 'always' to 'on-failure'
-# Restart=on-failure
-# StartLimitBurst=3
-# StartLimitIntervalSec=60
-
-sudo systemctl daemon-reload
-sudo systemctl restart apprise-api
-```
-
-**Solution 3: Check for Port Conflicts**
-
-```bash
-# Check if port 8000 is in use
-sudo ss -tuln | grep 8000
-sudo lsof -i :8000
-
-# If port in use, either:
-# 1. Stop conflicting service
-# 2. Change Apprise port to different port (8080, 9000, etc.)
-```
-
-### Systemd Service Fails to Start
-
-#### Symptom
-
-```bash
-systemctl start apprise-api returns error
-systemctl status apprise-api shows failed
-```
-
-Use `systemctl`, not `sysctl`, for services. `sysctl enable mailrise` is a kernel-parameter command and will fail with `/proc/sys/...` errors.
-
-#### Diagnosis
-
-```bash
-# Check service status details
 sudo systemctl status -l apprise-api
-sudo systemctl status -l mailrise
-
-# View detailed journal logs
-sudo journalctl -u apprise-api -n 50 -p err
-sudo journalctl -u mailrise -n 50 -p err
-
-# Validate systemd file syntax
+sudo journalctl -u apprise-api -n 100 -p warning
 sudo systemd-analyze verify /etc/systemd/system/apprise-api.service
-sudo systemd-analyze verify /etc/systemd/system/mailrise.service
-
-# Rootless installs use user services
-systemctl --user status -l apprise-api
-systemctl --user status -l mailrise
-journalctl --user -u apprise-api -n 50 -p err
-journalctl --user -u mailrise -n 50 -p err
-systemd-analyze --user verify ~/.config/systemd/user/apprise-api.service
-systemd-analyze --user verify ~/.config/systemd/user/mailrise.service
-```
-
-#### Solutions
-
-**Solution 1: Recreate Service File**
-
-```bash
-# Backup existing service
-sudo cp /etc/systemd/system/apprise-api.service \
-        /etc/systemd/system/apprise-api.service.bak
-
-# Reinstall with script
-sudo ./install-apprise-podman.sh --systemd
-
-# If Mailrise is installed
-sudo ./install-apprise-podman.sh --systemd --mailrise --mailrise-apprise-key your_apprise_config_key
-
-# Enable and start
-sudo systemctl enable apprise-api
-sudo systemctl start apprise-api
-sudo systemctl enable mailrise
-sudo systemctl start mailrise
-```
-
-**Solution 2: Fix Common Syntax Errors**
-
-```bash
-sudo nano /etc/systemd/system/apprise-api.service
-
-# Check for:
-# - Proper indentation
-# - Correct variable syntax (${VAR})
-# - Escaped special characters
-# - Valid path names
-
-# Validate changes
-sudo systemd-analyze verify /etc/systemd/system/apprise-api.service
-
-# Reload
-sudo systemctl daemon-reload
-```
-
-**Solution 3: Check Podman Availability**
-
-```bash
-# Ensure podman is available at service start time
-which podman
-
-# Check if podman service is running
-systemctl status podman
-
-# Start podman if needed
-sudo systemctl start podman
-```
-
-## Network and Connectivity
-
-### Cannot Access API from Localhost
-
-#### Symptom
-
-```bash
-curl http://localhost:8000 returns Connection refused
-telnet localhost 8000 fails
-```
-
-#### Diagnosis
-
-```bash
-# Check if container is running
-podman ps | grep apprise
-
-# Check port binding
-podman port apprise-api
-
-# Check container networking
-podman inspect apprise-api --format='{{.NetworkSettings}}'
-
-# Test from inside container
-podman exec apprise-api curl localhost:8000
-```
-
-The installer runs Apprise with a read-only root filesystem and persistent mounts at `/config`, `/plugin`, and `/attach`. If the container exits immediately, check for permission errors on the host data directories.
-
-#### Solutions
-
-**Solution 1: Verify Container Running**
-
-```bash
-# Start container if not running
-podman start apprise-api
-
-# Wait for startup
-sleep 5
-
-# Test again
-curl http://localhost:8000
-```
-
-**Solution 2: Check Port Binding**
-
-```bash
-# If custom port, use correct port
-curl http://localhost:8080  # for port 8080
-
-# Check all port mappings
-podman port apprise-api
-
-# Restart with correct port
-podman stop apprise-api
-sudo ./install-apprise-podman.sh --port 8000
-```
-
-**Solution 3: Restart Podman**
-
-```bash
-# Restart podman daemon
-sudo systemctl restart podman
-
-# Wait a moment
-sleep 3
-
-# Start container
-podman start apprise-api
-
-# Test
-curl http://localhost:8000
-```
-
-### Cannot Access API from Network
-
-#### Symptom
-
-```bash
-curl http://<pi-ip>:8000 works locally but fails from other machine
-```
-
-#### Diagnosis
-
-```bash
-# Test connectivity from other machine
-ping <pi-ip>
-
-# Test port connectivity
-nc -zv <pi-ip> 8000
-
-# or using telnet
-telnet <pi-ip> 8000
-
-# Check firewall status on Pi
-sudo ufw status
-sudo firewall-cmd --list-all
-```
-
-#### Solutions
-
-**Solution 1: Allow Firewall Access**
-
-```bash
-# For UFW
-sudo ufw allow 8000/tcp
-sudo ufw reload
-
-# For Firewalld
-sudo firewall-cmd --permanent --add-port=8000/tcp
-sudo firewall-cmd --reload
-
-# Verify
-sudo ufw status  # or firewall-cmd --list-all
-```
-
-**Solution 2: Verify Pi IP Address**
-
-```bash
-# Get Pi's IP
-hostname -I
-
-# Make sure using correct IP
-ping <correct-ip>
-
-# Test from other machine
-curl http://<correct-ip>:8000
-```
-
-**Solution 3: Check Podman Networking**
-
-```bash
-# Ensure container is binding to all interfaces (0.0.0.0)
-podman inspect apprise-api | grep -A 20 "PortBindings"
-
-# Output should show: "0.0.0.0"
-
-# If not, restart container or edit service file
-```
-
-### DNS Resolution Issues
-
-#### Symptom
-
-```bash
-curl http://pi.local:8000 fails with name resolution error
-```
-
-#### Diagnosis
-
-```bash
-# Check DNS resolution
-nslookup pi.local
-getent hosts pi.local
-
-# Check mDNS (Bonjour) availability
-avahi-resolve -n pi.local
-```
-
-#### Solutions
-
-**Solution 1: Use IP Address Instead**
-
-```bash
-# Instead of hostname
-curl http://192.168.1.50:8000
-```
-
-**Solution 2: Configure DNS/mDNS**
-
-```bash
-# Install mDNS support
-sudo apt-get install -y avahi-daemon
-
-# Restart networking
-sudo systemctl restart networking
-
-# Try resolution again
-ping pi.local
-```
-
-**Solution 3: Add to /etc/hosts**
-
-```bash
-# On accessing machine
-sudo nano /etc/hosts
-
-# Add line:
-# 192.168.1.50  pi.local
-
-# Save and try
-curl http://pi.local:8000
-```
-
-## API Issues
-
-### API Returns 500 Error
-
-#### Symptom
-
-```bash
-curl -X POST http://localhost:8000/notify returns 500 Internal Server Error
-```
-
-#### Diagnosis
-
-```bash
-# Check container logs for error details
-podman logs -f apprise-api
-
-# Check for specific error messages
-podman logs apprise-api | grep -i error
-
-# Test basic API endpoints
-curl http://localhost:8000/notify
-curl http://localhost:8000/urls
-```
-
-#### Solutions
-
-**Solution 1: Check Logs for Specific Error**
-
-```bash
-# Get detailed error
-podman logs --tail 100 apprise-api | grep -i "traceback\|error"
-
-# Common issues:
-# - Invalid JSON in request
-# - Missing required fields
-# - File permission issues
-```
-
-**Solution 2: Validate Request JSON**
-
-```bash
-# Make sure JSON is valid
-curl -X POST http://localhost:8000/notify \
-  -H "Content-Type: application/json" \
-  -d '{"body": "test", "title": "test"}'
-
-# Test with curl -v for verbose output
-curl -v -X POST http://localhost:8000/notify \
-  -H "Content-Type: application/json" \
-  -d '{"body": "test", "title": "test"}'
-```
-
-**Solution 3: Check Storage Permissions**
-
-```bash
-# Verify storage directory permissions
-ls -la /var/lib/apprise
-
-# Should be accessible and writable
-# Fix permissions if needed
-sudo chown -R 0:0 /var/lib/apprise
-sudo chmod -R 755 /var/lib/apprise
-```
-
-### API Not Responding
-
-#### Symptom
-
-```bash
-curl times out or hangs
-```
-
-#### Diagnosis
-
-```bash
-# Check if container is responsive
-podman exec apprise-api ps aux
-
-# Check system resources
-podman stats apprise-api
-
-# Check container network
-podman inspect apprise-api | grep -i "state\|network"
-```
-
-#### Solutions
-
-**Solution 1: Restart Container**
-
-```bash
-podman restart apprise-api
-sleep 5
-curl http://localhost:8000
-```
-
-**Solution 2: Check Resource Usage**
-
-```bash
-# View resource stats
-podman stats apprise-api
-
-# If memory > 90%, increase limit in systemd service
-sudo nano /etc/systemd/system/apprise-api.service
-# Add: MemoryLimit=768M
-
-# Reload and restart
-sudo systemctl daemon-reload
-sudo systemctl restart apprise-api
-```
-
-**Solution 3: Increase Timeout**
-
-```bash
-# For curl
-curl --max-time 30 http://localhost:8000
-
-# Check if response comes eventually
-# If very slow, may need to upgrade system or optimize config
-```
-
-## Notification Delivery
-
-### Notifications Not Being Sent
-
-#### Symptom
-
-```bash
-API returns success (200) but notification never arrives
-```
-
-#### Diagnosis
-
-```bash
-# Check configured URLs
-curl http://localhost:8000/urls
-
-# Get tag details
-curl http://localhost:8000/details/<tag-name>
-
-# Test with debug enabled
-podman exec apprise-api apprise -d -s <service-url>
-
-# Check notification history
-curl http://localhost:8000/history
-```
-
-#### Solutions
-
-**Solution 1: Verify Notification URL Format**
-
-```bash
-# Common formats:
-# Discord: discord://webhook_id/webhook_token
-# Telegram: tgram://bot-token/chat-id
-# Email: mailsmtp://user:pass@smtp.server
-
-# Validate URL with apprise CLI
-podman exec apprise-api apprise -b "Test" <service-url>
-```
-
-**Solution 2: Check Network Connectivity**
-
-```bash
-# Ping notification service
-ping discord.com
-ping api.telegram.org
-
-# Check DNS resolution
-nslookup api.telegram.org
-
-# If blocked, check firewall/proxy settings
-```
-
-**Solution 3: Verify Authentication**
-
-```bash
-# Ensure tokens/credentials are correct:
-# - Discord webhook ID and token
-# - Telegram bot token and chat ID
-# - Email username and password
-# - API keys for other services
-
-# Test manually
-podman exec apprise-api apprise -d -b "Test" \
-  -s "discord://your-webhook-id/your-webhook-token"
-```
-
-**Solution 4: Check Notification Service Limits**
-
-```bash
-# Some services have rate limiting:
-# - Discord: ~10 requests/second
-# - Telegram: ~30 requests/second
-# - Email: depends on provider
-
-# If hitting limits, space out requests or increase retry delays
-```
-
-### Invalid Service URL
-
-#### Symptom
-
-```bash
-"Invalid notification URL" error when adding service
-```
-
-#### Diagnosis
-
-```bash
-# Check URL format
-# Get apprise supported services
-podman exec apprise-api apprise --help
-
-# Check URL syntax
-podman logs apprise-api | grep -i "invalid\|syntax"
-```
-
-#### Solutions
-
-**Solution 1: Verify URL Format**
-
-```bash
-# Correct format examples:
-# Discord:    discord://webhook_id/webhook_token
-# Telegram:   tgram://bot_token/chat_id
-# Slack:      slack://token_a/token_b/token_c
-# Email:      mailsmtp://user:password@smtp.server:587
-
-# Common mistakes:
-# - Missing protocol prefix
-# - Malformed token/ID
-# - Wrong separator characters
-```
-
-**Solution 2: Test URL with Apprise CLI**
-
-```bash
-# Test URL directly
-podman exec apprise-api apprise -t "Test" -b "Body" \
-  'discord://webhook_id/webhook_token'
-
-# If error, review format
-```
-
-**Solution 3: Update to Latest Official Image**
-
-```bash
-# Get the latest official image
-podman pull docker.io/caronc/apprise:latest
-
-# Stop and remove old container
-podman stop apprise-api
-podman rm apprise-api
-
-# Verify podman-compose file uses official image
-# Then restart
-sudo ./install-apprise-podman.sh --systemd
-```
-
-## Mailrise Issues
-
-### Mailrise Service Does Not Exist
-
-#### Symptom
-
-```bash
-sudo systemctl status mailrise
-# Unit mailrise.service could not be found.
-```
-
-#### Solution
-
-Install with Mailrise enabled:
-
-```bash
-sudo ./install-apprise-podman.sh --systemd --mailrise --mailrise-apprise-key your_apprise_config_key
-sudo systemctl enable mailrise
-sudo systemctl start mailrise
 ```
 
 Rootless:
 
 ```bash
-./install-apprise-podman.sh --rootless --systemd --mailrise --mailrise-apprise-key your_apprise_config_key
-systemctl --user enable mailrise
-systemctl --user start mailrise
+systemctl --user status -l apprise-api
+journalctl --user -u apprise-api -n 100 -p warning
+systemd-analyze --user verify ~/.config/systemd/user/apprise-api.service
 ```
+
+Use `systemctl`, not `sysctl`, to manage services. Podman runs containers
+without a persistent daemon, so restarting `podman.service` is not a general
+container repair step.
+
+### Service Is Not Enabled After Installation
+
+This is intentional. Enable it after reviewing the generated unit:
+
+```bash
+# Rootful
+sudo systemctl enable --now apprise-api
+
+# Rootless
+systemctl --user enable --now apprise-api
+loginctl enable-linger "$USER"
+```
+
+### Rootless Service Stops After Logout
+
+```bash
+loginctl enable-linger "$USER"
+loginctl show-user "$USER" -p Linger
+systemctl --user enable --now apprise-api
+```
+
+## Network and API Issues
+
+### API Cannot Be Reached Locally
+
+```bash
+curl -v http://localhost:8000/status
+sudo podman port apprise-api
+sudo ss -ltnp | awk '$4 ~ /:8000$/ {print}'
+```
+
+If a custom host port was installed, use that port. The container always listens
+on `8000` internally.
+
+### API Cannot Be Reached from Another Host
+
+```bash
+hostname -I
+sudo ufw status
+sudo ufw allow 8000/tcp
+```
+
+From the client:
+
+```bash
+curl -v http://SERVER_IP:8000/status
+```
+
+Restrict firewall access to trusted networks whenever possible.
+
+### Local DNS Name Does Not Resolve
+
+Use a local DNS record such as `apprise.home.arpa` or the server IP directly:
+
+```bash
+getent hosts apprise.home.arpa
+curl http://apprise.home.arpa:8000/status
+```
+
+The `.local` suffix is reserved for multicast DNS. Use `home.arpa` for ordinary
+home-network DNS records unless an existing local naming plan is already in
+place.
+
+### Status Returns a Storage Error
+
+Request the JSON response and inspect the detail fields:
+
+```bash
+curl -sS -H 'Accept: application/json' http://localhost:8000/status | jq .
+```
+
+Continue with [Persistent Storage Issues](#persistent-storage-issues) if
+configuration or attachment paths are not writable.
+
+### Notification Request Returns HTTP 400
+
+A stateless `/notify` request requires a body and normally one or more URLs:
+
+```bash
+curl -X POST http://localhost:8000/notify \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "title": "Test",
+    "body": "Test message",
+    "urls": ["discord://webhook_id/webhook_token"]
+  }'
+```
+
+A persistent request uses an existing configuration key:
+
+```bash
+curl -X POST http://localhost:8000/notify/home-alerts \
+  -H 'Content-Type: application/json' \
+  -d '{"title":"Test","body":"Test message"}'
+```
+
+HTTP `204` from `/notify/{KEY}` means the key was not found or contained no
+usable configuration.
+
+### Current API Endpoint Reference
+
+| Method | Endpoint | Purpose |
+| ------ | -------- | ------- |
+| `GET` | `/status` | Health and persistent-storage status |
+| `POST` | `/notify` | Stateless notification using supplied URLs |
+| `POST` | `/add/{KEY}` | Save a persistent configuration |
+| `POST` | `/notify/{KEY}` | Notify through a saved configuration |
+| `POST` | `/get/{KEY}` | Retrieve a saved configuration |
+| `POST` | `/del/{KEY}` | Delete a saved configuration |
+| `GET` | `/json/urls/{KEY}?privacy=1` | List URLs and tags while masking secrets |
+| `GET` | `/details` | List supported Apprise services |
+| `GET` | `/metrics` | Prometheus metrics |
+
+The standard container serves its configuration interface at `/`. It does not
+serve Swagger at `/docs` or ReDoc at `/redoc`.
+
+## Persistent Storage Issues
+
+### Rootful Permissions
+
+The installer runs Apprise as `1000:1000` by default, or the value configured
+through `APPRISE_USER`, `PUID`, and `PGID`. Do not change the storage to
+`root:root` unless the container is also configured to run as root.
+
+Inspect the configured user:
+
+```bash
+sudo podman inspect apprise-api --format '{{.Config.User}}'
+sudo ls -ld /var/lib/apprise /var/lib/apprise/{config,plugin,attach}
+```
+
+For the default installer settings, repair ownership with:
+
+```bash
+sudo chown 1000:1000 /var/lib/apprise
+sudo chown -R 1000:1000 \
+  /var/lib/apprise/config \
+  /var/lib/apprise/plugin \
+  /var/lib/apprise/attach
+sudo chmod 755 /var/lib/apprise /var/lib/apprise/{config,plugin,attach}
+```
+
+Replace `1000:1000` with the configured container user when customized.
+
+### Rootless Permissions
+
+```bash
+ls -ld ~/.apprise ~/.apprise/{config,plugin,attach}
+podman inspect apprise-api --format '{{.HostConfig.UsernsMode}} {{.Config.User}}'
+```
+
+The directories should belong to the current user and the namespace should use
+`keep-id`.
+
+### Configuration Appears Missing
+
+Confirm the mounts and query the expected key:
+
+```bash
+sudo podman inspect apprise-api \
+  --format '{{range .Mounts}}{{println .Source "->" .Destination}}{{end}}'
+curl -X POST http://localhost:8000/get/home-alerts
+curl 'http://localhost:8000/json/urls/home-alerts?privacy=1' | jq .
+```
+
+There is no supported `/urls` endpoint that lists every key. Back up the entire
+persistent data directory rather than treating an API response as a complete
+backup.
+
+## Notification Delivery
+
+### API Accepts a Request but No Notification Arrives
+
+1. Review the Apprise API logs.
+2. Inspect the saved key with privacy enabled.
+3. Test the notification URL with the Apprise CLI.
+4. Confirm DNS and outbound HTTPS access from the host.
+
+```bash
+sudo podman logs --tail 100 apprise-api
+curl 'http://localhost:8000/json/urls/home-alerts?privacy=1' | jq .
+sudo podman exec apprise-api apprise -vv \
+  -t 'Test' \
+  -b 'Test body' \
+  'discord://webhook_id/webhook_token'
+```
+
+### Email URL Does Not Work
+
+Current Apprise email schemes are `mailto://` and `mailtos://`, not
+`mailsmtp://` or `email://`.
+
+Gmail requires 2-Step Verification and an App Password for this use case:
+
+```text
+mailto://user:google_app_password@gmail.com
+```
+
+Microsoft 365 basic SMTP authentication is not a portable default. Use the
+Microsoft Graph-based Office 365 plugin:
+
+```text
+o365://TenantID:AccountEmail/ClientID/ClientSecret/TargetEmail
+```
+
+Consult the current Apprise service documentation before placing credentials
+in a URL.
+
+## Mailrise Issues
+
+### Mailrise Unit Does Not Exist
+
+Re-run the installer with Mailrise enabled, then explicitly start the units:
+
+```bash
+sudo ./install-apprise-podman.sh \
+  --systemd \
+  --mailrise \
+  --mailrise-apprise-key your_apprise_config_key
+
+sudo systemctl enable --now apprise-api mailrise
+```
+
+For rootless mode, add `--rootless`, remove `sudo`, and use
+`systemctl --user enable --now`.
 
 ### Mailrise Cannot Reach Apprise API
 
-#### Symptom
-
-Mailrise starts, but email does not trigger notifications.
-
-#### Diagnosis
-
 ```bash
-# Check both containers are running
-podman ps
-
-# Check shared network
-podman network inspect notify-network
-podman ps --format '{{.Names}} {{.Networks}}'
-
-# Check Mailrise logs
-podman logs --tail 100 mailrise
-sudo journalctl -u mailrise -n 100
-```
-
-#### Solutions
-
-**Solution 1: Re-run the Installer with Mailrise Enabled**
-
-```bash
-sudo ./install-apprise-podman.sh --systemd --mailrise --mailrise-apprise-key your_apprise_config_key
-sudo systemctl daemon-reload
-sudo systemctl restart apprise-api
-sudo systemctl restart mailrise
-```
-
-**Solution 2: Verify Mailrise Config**
-
-System-wide config:
-
-```bash
+sudo podman ps
+sudo podman network inspect notify-network
+sudo podman logs --tail 100 mailrise
 sudo cat /etc/mailrise.conf
 ```
 
-Rootless config:
-
-```bash
-cat ~/.config/mailrise/mailrise.conf
-```
-
-Expected shape:
+The generated URL must use the container name and internal port:
 
 ```yaml
 configs:
@@ -950,508 +441,160 @@ configs:
       - apprise://apprise-api:8000/your_apprise_config_key
 ```
 
-The URL must use the container name `apprise-api` and container port `8000`, not the Raspberry Pi hostname or a custom host port.
+Do not substitute the server hostname or a custom published API port in this
+container-to-container URL.
 
-If `/etc/mailrise.conf` or `~/.config/mailrise/mailrise.conf` already existed before running the installer, the installer does not overwrite it. Check the generated example file instead:
+For rootless mode, omit `sudo` and inspect
+`~/.config/mailrise/mailrise.conf`.
+
+### Existing Mailrise Configuration Was Not Replaced
+
+This is intentional. The installer preserves the existing file and writes a
+starter example:
 
 ```bash
+# Rootful
 sudo cat /etc/mailrise.conf.example
 
 # Rootless
 cat ~/.config/mailrise/mailrise.conf.example
 ```
 
-### SMTP Client Cannot Connect to Mailrise
+Merge desired changes manually and restart Mailrise.
 
-#### Diagnosis
+### SMTP Client Cannot Connect
 
 ```bash
-# Default Mailrise host port is 8025
-sudo ss -tuln | grep 8025
-podman port mailrise
-
-# Check service/container status
+sudo podman port mailrise
+sudo ss -ltnp | awk '$4 ~ /:8025$/ {print}'
 sudo systemctl status mailrise
-podman ps | grep mailrise
 ```
 
-#### Solutions
+Use the host port supplied through `--mailrise-port`; the default is `8025`.
+The default generated Mailrise configuration uses no TLS or authentication, so
+expose it only to trusted networks.
 
-Use the port configured with `--mailrise-port`. The default is `8025`:
-
-```bash
-sudo ./install-apprise-podman.sh --systemd --mailrise --mailrise-port 2525 --mailrise-apprise-key your_apprise_config_key
-```
-
-Point SMTP clients at:
-
-- Host: `<pi-ip>`
-- Port: `8025` or your custom `--mailrise-port`
-- Recipient: `notify@mailrise.xyz`
-
-### Test Mailrise with curl
-
-Create a test message:
+### Test Mailrise
 
 ```bash
-printf 'Subject: Mailrise curl test\n\nHello from curl via Mailrise\n' > /tmp/mailrise-test.eml
-```
+printf 'Subject: Mailrise test\n\nHello from Mailrise\n' > /tmp/mailrise-test.eml
 
-Send it to the default generated Mailrise account:
-
-```bash
 curl -v smtp://127.0.0.1:8025 \
-  --mail-from test@localhost \
+  --mail-from notifications@home.arpa \
   --mail-rcpt notify@mailrise.xyz \
   --upload-file /tmp/mailrise-test.eml
 ```
 
-Expected SMTP responses include `220`, `250 OK`, `354`, and a final `250 OK`.
+The recipient must match a config key. A username-only key such as `notify`
+maps to `notify@mailrise.xyz`; `notify@localhost` is a different address.
 
-For a custom `--mailrise-port`, change the SMTP URL:
+## Backup and Restore
 
-```bash
-curl -v smtp://127.0.0.1:2525 \
-  --mail-from test@localhost \
-  --mail-rcpt notify@mailrise.xyz \
-  --upload-file /tmp/mailrise-test.eml
-```
-
-### Mailrise Recipient Is Not Configured
-
-#### Symptom
-
-```text
-ERROR:mailrise.skeleton:Recipient is not configured: notify@localhost
-```
-
-#### Cause
-
-With the default generated config key:
-
-```yaml
-configs:
-  notify:
-```
-
-Mailrise expands the username-only key to `notify@mailrise.xyz`. The address `notify@localhost` is a different recipient and will not match the default config.
-
-#### Solutions
-
-Use the default recipient:
+### Create and Verify a Backup
 
 ```bash
-curl -v smtp://127.0.0.1:8025 \
-  --mail-from test@localhost \
-  --mail-rcpt notify@mailrise.xyz \
-  --upload-file /tmp/mailrise-test.eml
+./scripts/backup-config.sh "$HOME/backups"
+cd "$HOME/backups"
+sha256sum -c apprise-backup-YYYYMMDD_HHMMSS.tar.gz.sha256
+tar tzf apprise-backup-YYYYMMDD_HHMMSS.tar.gz
 ```
 
-Or change the Mailrise config key to the exact address you want:
+### Rootful Restore
 
-```yaml
-configs:
-  notify@localhost:
-    urls:
-      - apprise://apprise-api:8000/your_apprise_config_key
-```
-
-Then restart Mailrise:
+Stop services before extracting over live state:
 
 ```bash
-sudo systemctl restart mailrise
-
-# Or, for a directly managed container
-sudo podman restart mailrise
+sudo systemctl stop mailrise apprise-api
+sudo tar xzf apprise-backup-YYYYMMDD_HHMMSS.tar.gz -C /
+sudo systemctl start apprise-api mailrise
+curl -fsS http://localhost:8000/status
 ```
 
-### Not a Valid Mailrise Address
-
-#### Symptom
-
-```text
-ERROR:mailrise.skeleton:Not a valid Mailrise address: notify
-```
-
-#### Solution
-
-Use a full email address for the recipient. For the default config, use:
+### Rootless Restore
 
 ```bash
---mail-rcpt notify@mailrise.xyz
+systemctl --user stop mailrise apprise-api
+tar xzf apprise-backup-YYYYMMDD_HHMMSS.tar.gz -C /
+systemctl --user start apprise-api mailrise
+curl -fsS http://localhost:8000/status
 ```
 
-## Performance Issues
+Omit Mailrise commands when it is not installed. Inspect archive paths before
+restoring to a different user or host.
 
-### Slow API Response Times
+## Resource Issues
 
-#### Symptom
-
-```bash
-API requests take >5 seconds to respond
-```
-
-#### Diagnosis
+Inspect actual usage before changing limits:
 
 ```bash
-# Check response time
-time curl http://localhost:8000/notify
-
-# Monitor system resources
-watch podman stats apprise-api
-
-# Check container logs for slow operations
-podman logs -f apprise-api
-```
-
-#### Solutions
-
-**Solution 1: Increase Resource Allocation**
-
-```bash
-# Edit systemd service
-sudo nano /etc/systemd/system/apprise-api.service
-
-# Increase memory and CPU
-MemoryLimit=768M
-CPUQuota=100%
-
-# Reload and restart
-sudo systemctl daemon-reload
-sudo systemctl restart apprise-api
-```
-
-**Solution 2: Reduce Number of Notifications**
-
-```bash
-# Large number of notifications slows API
-# Check configured URLs
-curl http://localhost:8000/urls
-
-# Remove unused notifications
-curl -X DELETE http://localhost:8000/remove/<tag>/<url>
-```
-
-**Solution 3: Enable Caching**
-
-```bash
-# Check if notifications are being sent repeatedly
-# Cache successful sends to avoid redundant API calls
-```
-
-### High Memory Usage
-
-#### Symptom
-
-```bash
-podman stats shows memory > 80% of limit
-```
-
-#### Diagnosis
-
-```bash
-# Check memory limit and usage
-podman inspect apprise-api | grep -i memory
-
-# Check for memory leaks
-podman stats apprise-api --stream
-
-# Check for large notification backlogs
-curl http://localhost:8000/history | wc -l
-```
-
-#### Solutions
-
-**Solution 1: Increase Memory Limit**
-
-```bash
-sudo nano /etc/systemd/system/apprise-api.service
-
-# Increase MemoryLimit
-MemoryLimit=512M  # or higher
-
-sudo systemctl daemon-reload
-sudo systemctl restart apprise-api
-```
-
-**Solution 2: Inspect Persistent State**
-
-```bash
-# Inspect persistent state before deleting anything
-sudo du -sh /var/lib/apprise/config/* 2>/dev/null || true
-du -sh "$HOME/.apprise/config"/* 2>/dev/null || true
-
-# Restart container
-podman restart apprise-api
-```
-
-**Solution 3: Monitor and Report Memory Leaks**
-
-```bash
-# If memory grows continuously over time, may be a bug
-# Check Apprise GitHub issues:
-# https://github.com/caronc/apprise-api/issues
-
-# Capture memory usage over time
-for i in {1..10}; do
-  echo "$(date): $(podman stats apprise-api --no-stream | tail -1)"
-  sleep 60
-done
-```
-
-## Storage and Backup Issues
-
-### Configuration Lost After Restart
-
-#### Symptom
-
-```bash
-Notification URLs/tags disappear after container restart
-```
-
-#### Diagnosis
-
-```bash
-# Check if storage is mounted
-podman inspect apprise-api | grep -A 10 "Mounts"
-
-# Verify storage directory exists
-ls -la /var/lib/apprise
-
-# Check stored configuration files
-ls -la /var/lib/apprise/config/
-
-# Rootless installs use:
-ls -la "$HOME/.apprise/config/"
-```
-
-#### Solutions
-
-**Solution 1: Verify Volume Mount**
-
-```bash
-# Check systemd service
-sudo grep -E -- '-v .+:/config|-v .+:/plugin|-v .+:/attach' /etc/systemd/system/apprise-api.service
-
-# Should show mounts for /config, /plugin, and /attach
-
-# Rootless:
-grep -E -- '-v .+:/config|-v .+:/plugin|-v .+:/attach' ~/.config/systemd/user/apprise-api.service
-
-# If missing, edit service and restart
-sudo nano /etc/systemd/system/apprise-api.service
-```
-
-**Solution 2: Restore from Backup**
-
-```bash
-# If backup exists
-sudo tar xzf apprise-backup-*.tar.gz -C /
-
-# Restart
-podman restart apprise-api
-```
-
-**Solution 3: Reconfigure After Loss**
-
-```bash
-# Recreate tags/URLs
-curl -X POST http://localhost:8000/add/my-alerts \
-  -H "Content-Type: application/json" \
-  -d '{"urls": ["discord://webhook/token"]}'
-
-# Export for future use
-curl http://localhost:8000/urls > urls-backup.json
-```
-
-### Insufficient Disk Space
-
-#### Symptom
-
-```bash
-"No space left on device" errors in logs
-```
-
-#### Diagnosis
-
-```bash
-# Check disk usage
-df -h /var/lib/apprise
-df -h "$HOME/.apprise" 2>/dev/null || true
-
-# Check what's using space
-du -sh /var/lib/apprise/*
-du -sh "$HOME/.apprise"/* 2>/dev/null || true
-
-# Check overall disk
-df -h /
-```
-
-#### Solutions
-
-**Solution 1: Review Generated State**
-
-```bash
-# Inspect storage before deleting anything
-sudo du -sh /var/lib/apprise/config/* 2>/dev/null || true
-du -sh "$HOME/.apprise/config"/* 2>/dev/null || true
-
-# Restart
-podman restart apprise-api
-```
-
-**Solution 2: Move Storage to Larger Disk**
-
-```bash
-# See CONFIGURATION.md "Change Storage Location" section
-```
-
-**Solution 3: Expand Root Filesystem**
-
-```bash
-# For Raspberry Pi with microSD card
-sudo raspi-config
-# Select: Advanced Options > Expand Filesystem
-
-# Reboot
-sudo reboot
-```
-
-## System Integration Issues
-
-### Systemd Service Not Auto-Starting
-
-#### Symptom
-
-```bash
-After reboot, apprise-api service not running
-systemctl is-enabled apprise-api returns disabled
-```
-
-#### Diagnosis
-
-```bash
-# Check if service is enabled
-sudo systemctl is-enabled apprise-api
-
-# Check service file exists
-ls -l /etc/systemd/system/apprise-api.service
-
-# Check for startup failures
-sudo journalctl -u apprise-api --boot
-```
-
-#### Solutions
-
-**Solution 1: Enable Service**
-
-```bash
-# Enable auto-start
-sudo systemctl enable apprise-api
-
-# Verify
-sudo systemctl is-enabled apprise-api
-
-# Check startup sequence
-sudo systemctl list-units --type service | grep apprise
-```
-
-**Solution 2: Check Dependencies**
-
-```bash
-# View service dependencies
-sudo systemctl cat apprise-api | grep -i after
-
-# Common dependencies: network.target, podman.service
-# Ensure these are available at startup
-
-# Check if podman is enabled
-sudo systemctl is-enabled podman
-```
-
-**Solution 3: Fix Boot Timing Issues**
-
-```bash
-# If service tries to start before dependencies ready
-sudo nano /etc/systemd/system/apprise-api.service
-
-# Update [Unit] section:
-# After=network-online.target podman.service
-# Wants=network-online.target podman.service
-
-# Add delay in [Service] section:
-# ExecStartPre=/bin/sleep 5
-
-sudo systemctl daemon-reload
-sudo systemctl enable apprise-api
-```
-
-## Getting Help
-
-### Collect Debug Information
-
-When reporting issues, gather this information:
-
-```bash
-# System info
-uname -a
-cat /etc/os-release
-
-# Podman info
-podman --version
-podman info
-
-# Container status
-podman ps -a
-podman inspect apprise-api
-podman inspect mailrise
-
-# Recent logs
-podman logs --tail 100 apprise-api
-podman logs --tail 100 mailrise
-
-# System resources
 free -h
 df -h
-podman stats apprise-api
-
-# Service status (if using systemd)
-sudo systemctl status apprise-api
-sudo systemctl status mailrise
-sudo journalctl -u apprise-api -n 50
-sudo journalctl -u mailrise -n 50
-
-# Rootless service status
-systemctl --user status apprise-api
-systemctl --user status mailrise
-journalctl --user -u apprise-api -n 50
-journalctl --user -u mailrise -n 50
-
-# Mailrise config and network, if installed
-sudo cat /etc/mailrise.conf
-cat ~/.config/mailrise/mailrise.conf 2>/dev/null || true
-podman network inspect notify-network
-
-# Storage mounts and files
-podman inspect apprise-api --format '{{range .Mounts}}{{println .Source "->" .Destination}}{{end}}'
-ls -la /var/lib/apprise 2>/dev/null || true
-ls -la "$HOME/.apprise" 2>/dev/null || true
+sudo podman stats --no-stream apprise-api
+sudo du -sh /var/lib/apprise
 ```
 
-### Report Issues
+For rootless mode, omit `sudo` and inspect `~/.apprise`. If a systemd resource
+limit is added manually, validate and restart the unit. Remember that re-running
+the installer regenerates its service file, so record local overrides in a
+systemd drop-in:
 
-- **Script Issues**: Check GitHub repo or create issue
-- **Apprise Issues**: <https://github.com/caronc/apprise/issues>
-- **Apprise API Issues**: <https://github.com/caronc/apprise-api/issues>
+```bash
+sudo systemctl edit apprise-api
+```
 
-### Additional Resources
+Example drop-in:
 
-- [README.md](README.md) - Overview and quick start
-- [INSTALLATION.md](INSTALLATION.md) - Installation guide
-- [CONFIGURATION.md](CONFIGURATION.md) - Configuration options
-- [Apprise Wiki](https://github.com/caronc/apprise/wiki)
-- [Podman Documentation](https://podman.io/docs)
+```ini
+[Service]
+MemoryMax=768M
+CPUQuota=100%
+```
 
----
+Then apply it:
 
-**Still having issues?** Refer to Apprise documentation or create detailed bug report with debug information above.
+```bash
+sudo systemctl daemon-reload
+sudo systemctl restart apprise-api
+```
+
+## Reporting Issues
+
+Before sharing diagnostics, remove or mask passwords, tokens, webhook URLs,
+Apprise URLs, Mailrise routing keys, IP addresses, and other private data.
+`podman inspect`, service units, and Mailrise configuration can contain
+sensitive values.
+
+Collect a minimal, redacted report:
+
+```bash
+uname -a
+cat /etc/os-release
+podman --version
+curl -sS -H 'Accept: application/json' http://localhost:8000/status
+sudo podman ps -a
+sudo podman logs --tail 100 apprise-api
+sudo systemctl status apprise-api
+```
+
+Use rootless command variants when applicable.
+
+- Problems with this repository's documentation, scripts, configurations, or
+  examples belong in the
+  [homelab-notification issue tracker](https://github.com/Racerx323/homelab-notification/issues).
+- Upstream Apprise API defects belong in the
+  [Apprise API issue tracker](https://github.com/caronc/apprise-api/issues).
+- Notification-service or Apprise URL defects belong in the
+  [Apprise issue tracker](https://github.com/caronc/apprise/issues).
+- Upstream Mailrise defects belong in the
+  [Mailrise issue tracker](https://github.com/YoRyan/mailrise/issues).
+
+## Additional Resources
+
+- [Project overview](../README.md)
+- [Installation guide](INSTALLATION.md)
+- [Quick start](QUICK_START.md)
+- [Configuration guide](CONFIGURATION.md)
+- [Rootless guide](ROOTLESS.md)
+- [Apprise API upstream documentation](https://github.com/caronc/apprise-api)
+- [Apprise service documentation](https://appriseit.com/services/)
+- [Podman documentation](https://podman.io/docs)

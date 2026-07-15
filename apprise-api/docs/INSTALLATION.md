@@ -1,529 +1,362 @@
 # Apprise API Installation Guide
 
-Comprehensive step-by-step installation guide for Apprise API on Debian 12 Raspberry Pi 5.
+Install Apprise API, with optional Mailrise SMTP relay, on Debian 12 using
+Podman. Examples assume a Raspberry Pi 5, but the upstream image also supports
+`amd64`, `arm/v7`, and `arm64`.
 
 ## Prerequisites
 
-Before starting, ensure you have:
+- Debian 12 or a compatible Debian-based system
+- A regular user with `sudo` access
+- Internet access to Docker Hub
+- Approximately 2 GB of free disk space
+- Port `8000` available for Apprise API
+- Port `8025` available if Mailrise is enabled
 
-- [ ] Debian 12 running on Raspberry Pi 5
-- [ ] SSH access to your Pi
-- [ ] sudo privileges
-- [ ] Internet connectivity
-- [ ] At least 2GB free disk space
-
-## Pre-Installation Checks
-
-### 1. Verify System Information
+Check the system before installation:
 
 ```bash
-# Check OS and kernel
 cat /etc/os-release
-uname -m  # Should show aarch64 for ARM64
-
-# Check available disk space
+uname -m
 df -h
-
-# Check memory
 free -h
 ```
 
-**Expected Output:**
+Copy the entire `apprise-api` directory when possible. The installer itself is
+self-contained, but the directory also provides health, backup, logging, and
+notification helper scripts.
 
-- OS: Debian 12 (bookworm)
-- Architecture: aarch64 (ARM64)
-- Disk: At least 2GB free
-- Memory: At least 512MB available
+## Installer Modes
 
-### 2. Check for Existing Podman Installation
+The installer supports two container-management modes:
 
-```bash
-podman --version
-```
+- Without `--systemd`, it starts directly managed containers immediately.
+- With `--systemd`, it writes service units but deliberately does not enable or
+  start them. This allows the generated units to be reviewed first.
 
-If podman is not installed, the installation script will handle it automatically.
+It also supports two privilege modes:
 
-## Installation Steps
+- Rootful commands use `sudo` and store data in `/var/lib/apprise`.
+- Rootless commands run as a regular user and store data in `~/.apprise`.
 
-### Step 1: Prepare the System
+Do not run `--rootless` with `sudo`.
 
-```bash
-# Update package lists
-sudo apt-get update
+## Rootful Installation
 
-# Upgrade existing packages
-sudo apt-get upgrade -y
+### Direct Container Management
 
-# This is optional but recommended for security
-sudo apt-get dist-upgrade -y
-```
-
-### Step 2: Navigate to the Apprise Directory
-
-```bash
-cd /path/to/apprise-api
-```
-
-**Note:** When running remotely via SSH/SCP, you only need to copy the `install-apprise-podman.sh` script. The Docker image will be downloaded directly from Docker Hub.
-
-### Step 3: Review the Installation Script
-
-```bash
-# View the script to understand what it does
-cat install-apprise-podman.sh
-
-# Check script permissions
-ls -l install-apprise-podman.sh
-```
-
-### Step 4: Run the Installation Script
-
-#### Option A: Basic Installation (Manual Management)
+Install dependencies and start Apprise API immediately:
 
 ```bash
 sudo ./install-apprise-podman.sh
 ```
 
-This will:
+Manage this root-owned container with `sudo podman`:
 
-- Download the official **docker.io/caronc/apprise:latest** Docker image from Docker Hub
-- Configure Podman to run the container
-- Start the container immediately
-- Make it available at `http://localhost:8000`
-
-**Requirements:**
-
-- Internet connectivity to download the Docker image (~500MB)
-- Podman installed (script will verify)
-- ~2GB free disk space
-
-**Log Output Expected:**
-
-```text
-[INFO] Starting Apprise API installation on Debian 12 for Raspberry Pi 5
-[INFO] Podman version: 4.3.1
-[INFO] Installing system dependencies...
-[INFO] Setting up Apprise data directory: /var/lib/apprise
-[INFO] Pulling Apprise API image...
-[INFO] Running Apprise API container...
-[INFO] Container started successfully
+```bash
+sudo podman ps
+sudo podman logs -f apprise-api
+sudo podman restart apprise-api
 ```
 
-#### Option B: Production Setup with Systemd (Recommended)
+### Systemd Service
+
+Create the service:
 
 ```bash
 sudo ./install-apprise-podman.sh --systemd
 ```
 
-This will:
-
-- Install all dependencies
-- Set up a systemd service for auto-start on reboot
-- Create `/etc/systemd/system/apprise-api.service`
-- Display management commands
-
-**Log Output Expected:**
-
-```text
-[INFO] Creating systemd service file: /etc/systemd/system/apprise-api.service
-[INFO] Systemd service created successfully
-[INFO] Enable with: systemctl enable apprise-api
-[INFO] Start with: systemctl start apprise-api
-```
-
-#### Option C: Custom Configuration
+Review and validate the generated unit:
 
 ```bash
-# Custom port
+sudo systemctl cat apprise-api
+sudo systemd-analyze verify /etc/systemd/system/apprise-api.service
+```
+
+Then enable and start it:
+
+```bash
+sudo systemctl enable --now apprise-api
+```
+
+The service is written to `/etc/systemd/system/apprise-api.service`.
+
+## Installation with Mailrise
+
+Create Apprise API and Mailrise system services:
+
+```bash
+sudo ./install-apprise-podman.sh \
+  --systemd \
+  --mailrise \
+  --mailrise-apprise-key your_apprise_config_key
+```
+
+Review and start both units:
+
+```bash
+sudo systemd-analyze verify \
+  /etc/systemd/system/apprise-api.service \
+  /etc/systemd/system/mailrise.service
+
+sudo systemctl enable --now apprise-api mailrise
+```
+
+This installation:
+
+- Pulls `docker.io/caronc/apprise:latest`
+- Pulls `docker.io/yoryan/mailrise:latest`
+- Creates the Podman network `notify-network`
+- Creates `/etc/mailrise.conf`, or writes `/etc/mailrise.conf.example` when an
+  existing config must be preserved
+- Routes the generated Mailrise config through
+  `apprise://apprise-api:8000/your_apprise_config_key`
+
+Mailrise uses the Apprise API container name and internal port `8000`. A custom
+Apprise host port does not change this internal URL.
+
+## Custom Ports
+
+Change the Apprise API host port:
+
+```bash
 sudo ./install-apprise-podman.sh --systemd --port 8080
-
-# Mailrise SMTP relay on a custom host port
-sudo ./install-apprise-podman.sh --systemd --mailrise --mailrise-port 2525 --mailrise-apprise-key your_apprise_config_key
+sudo systemctl enable --now apprise-api
 ```
 
-#### Option D: Apprise API with Mailrise SMTP Relay
+Change the Mailrise SMTP host port:
 
 ```bash
-sudo ./install-apprise-podman.sh --systemd --mailrise --mailrise-apprise-key your_apprise_config_key
+sudo ./install-apprise-podman.sh \
+  --systemd \
+  --mailrise \
+  --mailrise-port 2525 \
+  --mailrise-apprise-key your_apprise_config_key
+
+sudo systemctl enable --now apprise-api mailrise
 ```
 
-This will:
+## Rootless Installation
 
-- Pull the official **docker.io/caronc/apprise:latest** Docker image
-- Pull the official **docker.io/yoryan/mailrise:latest** Docker image
-- Create a shared Podman network named `notify-network`
-- Create `/etc/mailrise.conf`, or create `/etc/mailrise.conf.example` if a config already exists
-- Create systemd services for both `apprise-api` and `mailrise`
-- Configure Mailrise to send through `apprise://apprise-api:8000/your_apprise_config_key`
-
-If installation fails partway through, the installer attempts to clean up artifacts it created during that run, including new containers, new service files, generated Mailrise config/example files, and a newly-created `notify-network`. Existing Mailrise configs, existing service files, and existing Podman networks are preserved.
-
-Use `systemctl`, not `sysctl`, to manage services:
+Install rootless prerequisites:
 
 ```bash
-# Enable auto-start on reboot
-sudo systemctl enable apprise-api
-sudo systemctl enable mailrise
+sudo apt-get update
+sudo apt-get install -y \
+  podman \
+  uidmap \
+  slirp4netns \
+  fuse-overlayfs \
+  ca-certificates \
+  curl \
+  jq
+```
 
-# Start the services
-sudo systemctl start apprise-api
-sudo systemctl start mailrise
+Verify subordinate UID and GID ranges exist for the current user:
 
-# Check service status
+```bash
+getent subuid "$USER"
+getent subgid "$USER"
+podman info
+```
+
+Create and start a rootless service:
+
+```bash
+./install-apprise-podman.sh --rootless --systemd
+systemctl --user enable --now apprise-api
+loginctl enable-linger "$USER"
+```
+
+For rootless Mailrise:
+
+```bash
+./install-apprise-podman.sh \
+  --rootless \
+  --systemd \
+  --mailrise \
+  --mailrise-apprise-key your_apprise_config_key
+
+systemctl --user enable --now apprise-api mailrise
+loginctl enable-linger "$USER"
+```
+
+See [ROOTLESS.md](ROOTLESS.md) for the complete rootless workflow.
+
+## Verify Installation
+
+### API Health
+
+Use the supported health endpoint:
+
+```bash
+curl -fsS -H 'Accept: application/json' http://localhost:8000/status | jq .
+```
+
+For a custom host port, replace `8000` in the URL.
+
+### Container and Service Status
+
+Rootful:
+
+```bash
+sudo podman ps
+sudo podman logs --tail 50 apprise-api
 sudo systemctl status apprise-api
+
+# If Mailrise is installed
+sudo podman logs --tail 50 mailrise
 sudo systemctl status mailrise
 ```
 
-For rootless installs, use user-level systemd instead:
+Rootless:
 
 ```bash
-./install-apprise-podman.sh --rootless --systemd --mailrise --mailrise-apprise-key your_apprise_config_key
-
-systemctl --user enable apprise-api
-systemctl --user enable mailrise
-systemctl --user start apprise-api
-systemctl --user start mailrise
-```
-
-### Step 5: Verify Installation
-
-#### Check Container Status
-
-```bash
-# List running containers
 podman ps
+podman logs --tail 50 apprise-api
+systemctl --user status apprise-api
 
-# Look for apprise-api in the output
-# Expected: apprise-api running
-
-# If Mailrise was installed
-podman ps | grep mailrise
+# If Mailrise is installed
+podman logs --tail 50 mailrise
+systemctl --user status mailrise
 ```
 
-#### Test API Connectivity
+### Network Access
+
+Find the server IP and test from another host:
 
 ```bash
-# Basic connectivity test
-curl http://localhost:8000/
-
-# Expected response: JSON with API information
-```
-
-#### View Container Logs
-
-```bash
-# Real-time logs (Ctrl+C to exit)
-podman logs -f apprise-api
-
-# Last 20 lines
-podman logs --tail 20 apprise-api
-
-# If Mailrise was installed
-podman logs --tail 20 mailrise
-```
-
-### Step 6: Enable Systemd Service (if using --systemd)
-
-```bash
-# Enable auto-start on reboot
-sudo systemctl enable apprise-api
-
-# If Mailrise was installed
-sudo systemctl enable mailrise
-
-# Verify it's enabled
-sudo systemctl is-enabled apprise-api
-sudo systemctl is-enabled mailrise
-# Expected output: enabled
-
-# Start the service
-sudo systemctl start apprise-api
-
-# If Mailrise was installed
-sudo systemctl start mailrise
-
-# Check service status
-sudo systemctl status apprise-api
-sudo systemctl status mailrise
-```
-
-### Step 7: Configure Network Access
-
-If accessing from other machines on your network:
-
-```bash
-# Get Pi's IP address
 hostname -I
-
-# Test connectivity from another machine
-curl http://<pi-ip>:8000/
-
-# Access web UI
-# Open browser to: http://<pi-ip>:8000/docs
+curl -fsS http://SERVER_IP:8000/status
 ```
 
-## Systemd Service Management (Post-Installation)
+The built-in configuration interface is at `http://SERVER_IP:8000/`. The
+standard deployment does not expose Swagger at `/docs` or ReDoc at `/redoc`.
 
-If you installed with `--systemd`, manage the service with:
+## Configure Notifications
 
-```bash
-# Start the service
-sudo systemctl start apprise-api
-
-# Stop the service
-sudo systemctl stop apprise-api
-
-# Restart the service
-sudo systemctl restart apprise-api
-
-# Check service status
-sudo systemctl status apprise-api
-
-# View service logs
-sudo journalctl -u apprise-api -f
-
-# View Mailrise service logs
-sudo journalctl -u mailrise -f
-
-# View last 50 lines of logs
-sudo journalctl -u apprise-api -n 50
-sudo journalctl -u mailrise -n 50
-
-# Disable auto-start
-sudo systemctl disable apprise-api
-sudo systemctl disable mailrise
-```
-
-For rootless systemd installs, use `systemctl --user` and `journalctl --user` instead of the `sudo systemctl` and `sudo journalctl` commands above.
-
-## Post-Installation Configuration
-
-### 1. Access the API
-
-**Web Interface:**
-
-```text
-http://localhost:8000/docs          # Swagger UI
-http://localhost:8000/redoc         # ReDoc
-http://localhost:8000               # API Root
-```
-
-**From Network:**
-
-```text
-http://<pi-ip>:8000/docs
-```
-
-### 2. Add Your First Notification Service
-
-Use the Swagger UI or curl:
-
-```bash
-# Discord Example
-curl -X POST http://localhost:8000/add/apprise \
-  -H "Content-Type: application/json" \
-  -d '{
-    "urls": [
-      "discord://webhook_id/webhook_token"
-    ]
-  }'
-
-# Telegram Example
-curl -X POST http://localhost:8000/add/apprise \
-  -H "Content-Type: application/json" \
-  -d '{
-    "urls": [
-      "tgram://bot-token/chat-id"
-    ]
-  }'
-```
-
-### 3. Send a Test Notification
+### Stateless Request
 
 ```bash
 curl -X POST http://localhost:8000/notify \
-  -H "Content-Type: application/json" \
+  -H 'Content-Type: application/json' \
   -d '{
-    "body": "This is a test notification",
     "title": "Apprise API Test",
-    "urls": "discord://webhook_id/webhook_token"
+    "body": "This is a test notification",
+    "urls": ["discord://webhook_id/webhook_token"]
   }'
 ```
 
-### 4. Create Configuration Tags
+### Persistent Configuration Key
+
+Save URLs under a key:
 
 ```bash
-# Add notifications to a tag
 curl -X POST http://localhost:8000/add/home-alerts \
-  -H "Content-Type: application/json" \
+  -H 'Content-Type: application/json' \
   -d '{
     "urls": [
       "discord://webhook_id/webhook_token",
-      "email://user:password@gmail.com"
+      "mailto://user:app-password@gmail.com"
     ]
   }'
+```
 
-# Send to tagged group
+Send through that key:
+
+```bash
 curl -X POST http://localhost:8000/notify/home-alerts \
-  -H "Content-Type: application/json" \
-  -d '{
-    "body": "Alert for home",
-    "title": "Home Alert"
-  }'
+  -H 'Content-Type: application/json' \
+  -d '{"title":"Home Alert","body":"Test message"}'
 ```
 
-## Troubleshooting Installation
-
-### Container Won't Start
+Inspect the key while masking credentials:
 
 ```bash
-# Check container logs
-podman logs apprise-api
-
-# Check system resources
-podman stats apprise-api
-
-# Try stopping and removing
-podman stop apprise-api
-podman rm apprise-api
-
-# Try reinstalling
-sudo ./install-apprise-podman.sh
+curl 'http://localhost:8000/json/urls/home-alerts?privacy=1' | jq .
 ```
 
-### Port Already in Use
+Delete it:
 
 ```bash
-# Find process using port 8000
-sudo ss -tuln | grep 8000
-
-# or
-
-sudo lsof -i :8000
-
-# Stop the conflicting service or use a different port:
-sudo ./install-apprise-podman.sh --port 8080
+curl -X POST http://localhost:8000/del/home-alerts
 ```
 
-### Podman Not Installing
+The path component after `/add`, `/notify`, and `/del` is a configuration key,
+not an Apprise tag. Tags are optional filters contained within a configuration.
+
+## Back Up and Restore
+
+Create a backup and checksum:
 
 ```bash
-# Manual podman installation
-sudo apt-get update
-sudo apt-get install -y podman
-
-# Verify installation
-podman --version
+./scripts/backup-config.sh "$HOME/backups"
 ```
 
-### Image Pull Fails with Authentication Error
-
-If you see: `denied: requested access to the resource is denied` or `unauthorized: authentication required`
+Before restoring, stop the managed services and verify the checksum:
 
 ```bash
-# Step 1: Update CA certificates (most common fix)
-sudo apt-get update
-sudo apt-get install -y --reinstall ca-certificates
-sudo update-ca-certificates --fresh
+cd "$HOME/backups"
+sha256sum -c apprise-backup-YYYYMMDD_HHMMSS.tar.gz.sha256
 
-# Step 2: Test connectivity to Docker Hub
-ping -c 1 hub.docker.com
-curl -I https://hub.docker.com
-
-# Step 3: Try manual pull
-sudo podman pull docker.io/caronc/apprise:latest
-
-# Step 4: Check Podman registry configuration
-cat /etc/containers/registries.conf
+sudo systemctl stop mailrise apprise-api
+sudo tar xzf apprise-backup-YYYYMMDD_HHMMSS.tar.gz -C /
+sudo systemctl start apprise-api mailrise
 ```
 
-**Note:** The installer uses the fully qualified Docker Hub image path by default. In rootful mode it also configures `/etc/containers/registries.conf` for compatibility with other short-name pulls.
+Omit Mailrise commands when it is not installed. Rootless restore instructions
+are in [ROOTLESS.md](ROOTLESS.md#backup-and-restore).
 
-### General Podman Issues
+## Update an Installation
+
+The deployment uses `latest`, so review upstream release notes before updating.
+Re-run the same installer command to pull the current image and regenerate the
+service, then restart it:
 
 ```bash
-# Manual podman installation
-sudo apt-get update
-sudo apt-get install -y podman
-
-# Verify installation
-podman --version
-
-# Check if Podman service is running
-systemctl status podman
-sudo systemctl start podman
-
-# Try manual pull
-podman pull docker.io/caronc/apprise:latest
+sudo ./install-apprise-podman.sh --systemd
+sudo systemctl restart apprise-api
 ```
 
-## Uninstallation
+Include the original Mailrise options when Mailrise is installed.
 
-To completely remove Apprise API:
+## Uninstall
 
-### Option 1: Keep Configuration
+### Preserve Persistent Data
 
 ```bash
-# Stop service if enabled
-sudo systemctl stop apprise-api
-sudo systemctl disable apprise-api
-sudo systemctl stop mailrise
-sudo systemctl disable mailrise
-
-# Remove container
-podman stop apprise-api
-podman rm apprise-api
-podman stop mailrise
-podman rm mailrise
-
-# Remove systemd service file
-sudo rm /etc/systemd/system/apprise-api.service
-sudo rm /etc/systemd/system/mailrise.service
+sudo systemctl disable --now apprise-api
+sudo systemctl disable --now mailrise
+sudo rm -f /etc/systemd/system/apprise-api.service
+sudo rm -f /etc/systemd/system/mailrise.service
 sudo systemctl daemon-reload
 
-# Configuration in /var/lib/apprise and /etc/mailrise.conf is preserved
+sudo podman rm -f apprise-api mailrise
+sudo podman network rm notify-network
 ```
 
-### Option 2: Complete Removal
+Ignore commands for components that were not installed. This preserves
+`/var/lib/apprise` and `/etc/mailrise.conf`.
+
+### Complete Removal
+
+Create and verify a backup first. Then, in addition to the preceding commands:
 
 ```bash
-# Remove container
-podman stop apprise-api
-podman rm apprise-api
-podman stop mailrise
-podman rm mailrise
-
-# Remove image
-podman rmi docker.io/caronc/apprise:latest
-podman rmi docker.io/yoryan/mailrise:latest
-
-# Remove configuration
+sudo podman rmi docker.io/caronc/apprise:latest
+sudo podman rmi docker.io/yoryan/mailrise:latest
 sudo rm -rf /var/lib/apprise
-sudo rm -f /etc/mailrise.conf
-
-# Remove systemd service
-sudo rm /etc/systemd/system/apprise-api.service
-sudo rm /etc/systemd/system/mailrise.service
-sudo systemctl daemon-reload
-
-# Remove shared network if no other containers use it
-podman network rm notify-network
+sudo rm -f /etc/mailrise.conf /etc/mailrise.conf.example
 ```
+
+These commands remove only this deployment's named containers, network, images,
+and data. They do not prune unrelated Podman resources.
 
 ## Next Steps
 
-1. **Configure Notifications**: See [CONFIGURATION.md](CONFIGURATION.md)
-2. **Troubleshoot Issues**: See [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
-3. **Explore Examples**: Check `examples/` directory
-4. **Read API Documentation**: Access at `http://<pi-ip>:8000/docs`
-
-## Getting Help
-
-- Check [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
-- Review container logs: `podman logs apprise-api`
-- Check Apprise documentation: <https://github.com/caronc/apprise>
-- Visit Apprise wiki: <https://github.com/caronc/apprise/wiki>
-
----
-
-**Installation Complete!** Your Apprise API is ready to use.
+- [Quick start](QUICK_START.md)
+- [Configuration guide](CONFIGURATION.md)
+- [Rootless guide](ROOTLESS.md)
+- [Troubleshooting guide](TROUBLESHOOTING.md)
+- [API examples](../examples/api-examples.json)

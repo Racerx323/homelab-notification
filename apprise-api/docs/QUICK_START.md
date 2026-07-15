@@ -1,116 +1,144 @@
-# Apprise API - Quick Start Guide
+# Apprise API Quick Start
 
-Get Apprise API up and running in 5 minutes!
+Deploy Apprise API on Debian 12 with Podman and send a notification.
 
 ## Prerequisites
 
-- Debian 12 on Raspberry Pi 5
-- SSH access with sudo privileges
-- ~2GB free disk space
+- Debian 12 on a supported architecture
+- A regular user with `sudo` access
+- Internet access to Docker Hub
+- Approximately 2 GB of free disk space
 
-## Installation (2 minutes)
+Run commands from the `apprise-api` directory unless stated otherwise.
+
+## Rootful Installation with Systemd
+
+Create the system service:
 
 ```bash
-# Navigate to the apprise-api directory
-cd /path/to/apprise-api
+sudo ./install-apprise-podman.sh --systemd
+```
 
-# Run installation (choose one)
+The installer creates the service but does not enable or start it. Enable and
+start it explicitly:
 
-# Option 1: Development (manual management)
+```bash
+sudo systemctl enable --now apprise-api
+```
+
+For Apprise API plus Mailrise:
+
+```bash
+sudo ./install-apprise-podman.sh \
+  --systemd \
+  --mailrise \
+  --mailrise-apprise-key your_apprise_config_key
+
+sudo systemctl enable --now apprise-api mailrise
+```
+
+## Rootless Installation with Systemd
+
+Install the rootless prerequisites, then run the installer as your regular user:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y podman uidmap slirp4netns fuse-overlayfs ca-certificates curl jq
+
+./install-apprise-podman.sh --rootless --systemd
+systemctl --user enable --now apprise-api
+loginctl enable-linger "$USER"
+```
+
+For rootless Apprise API plus Mailrise:
+
+```bash
+./install-apprise-podman.sh \
+  --rootless \
+  --systemd \
+  --mailrise \
+  --mailrise-apprise-key your_apprise_config_key
+
+systemctl --user enable --now apprise-api mailrise
+loginctl enable-linger "$USER"
+```
+
+See [ROOTLESS.md](ROOTLESS.md) for subordinate-ID checks, service management,
+and rootless troubleshooting.
+
+## Direct Container Installation
+
+Omit `--systemd` to start directly managed containers immediately:
+
+```bash
+# Rootful
 sudo ./install-apprise-podman.sh
 
-# Option 2: Production (with systemd auto-start) ⭐ RECOMMENDED
-sudo ./install-apprise-podman.sh --systemd
-
-# Option 3: Production with Mailrise SMTP relay
-sudo ./install-apprise-podman.sh --systemd --mailrise --mailrise-apprise-key your_apprise_config_key
-
-# Rootless production with Mailrise
-./install-apprise-podman.sh --rootless --systemd --mailrise --mailrise-apprise-key your_apprise_config_key
+# Rootless
+./install-apprise-podman.sh --rootless
 ```
 
-Mailrise listens on SMTP port `8025` by default and sends to `apprise://apprise-api:8000/your_apprise_config_key` inside the shared `notify-network` Podman network.
+## Verify the Deployment
 
-## Verification (1 minute)
+Check API health:
 
 ```bash
-# Check if container is running
-podman ps | grep apprise
+curl -fsS -H 'Accept: application/json' http://localhost:8000/status | jq .
+```
 
-# Test API connectivity
-curl http://localhost:8000/
+For a rootful deployment, inspect containers with root privileges:
 
-# View logs
-podman logs apprise-api
-
-# Check systemd status (if installed with --systemd)
+```bash
+sudo podman ps
+sudo podman logs apprise-api
 sudo systemctl status apprise-api
-
-# If Mailrise was installed
-sudo systemctl status mailrise
-podman logs mailrise
 ```
 
-## First Notification (2 minutes)
-
-### Step 1: Get a Webhook URL
-
-Choose your notification service:
-
-**Discord** (easiest):
-
-1. Go to your Discord server
-2. Server Settings → Integrations → Webhooks
-3. Create webhook, copy the webhook URL
-4. Extract: `discord://webhook_id/webhook_token`
-
-**Telegram**:
-
-1. Message @BotFather on Telegram to create a bot (get token)
-2. Message @userinfobot to get your chat ID
-3. URL: `tgram://bot_token/chat_id`
-
-**Email**:
-
-- Gmail: `mailsmtp://email:password@smtp.gmail.com:587/?from=email@gmail.com`
-- Outlook: `mailsmtp://email:password@smtp.office365.com:587/?from=email@outlook.com`
-
-More services: See [examples/notification-urls.txt](examples/notification-urls.txt)
-
-### Step 2: Send Test Notification
+For a rootless deployment:
 
 ```bash
-# Using curl
+podman ps
+podman logs apprise-api
+systemctl --user status apprise-api
+```
+
+The built-in Apprise API configuration interface is available at
+`http://localhost:8000/`. The deployed container does not provide Swagger at
+`/docs` or ReDoc at `/redoc`.
+
+## Send a Stateless Notification
+
+A stateless request supplies its notification URL in the request:
+
+```bash
 curl -X POST http://localhost:8000/notify \
-  -H "Content-Type: application/json" \
+  -H 'Content-Type: application/json' \
   -d '{
     "title": "Hello Apprise",
-    "body": "My first notification!",
-    "urls": "discord://webhook_id/webhook_token"
-  }'
-
-# Or use the provided script
-cd examples
-./send-notification.sh apprise "Hello" "My first notification!" info
-```
-
-If notification arrives, you're all set! ✅
-
-## Create Your First Tag
-
-A "tag" is a group of notification services. Send to the tag instead of individual URLs:
-
-```bash
-# Add a tag with your notification service
-curl -X POST http://localhost:8000/add/home-alerts \
-  -H "Content-Type: application/json" \
-  -d '{
+    "body": "My first notification",
+    "type": "info",
     "urls": ["discord://webhook_id/webhook_token"]
   }'
+```
 
-# Send notification to the tag
+## Create and Use a Configuration Key
+
+Apprise API stores persistent configurations under a key. A key is not an
+Apprise tag; tags are optional filters defined inside an Apprise configuration.
+
+Create the key `home-alerts`:
+
+```bash
+curl -X POST http://localhost:8000/add/home-alerts \
+  -H 'Content-Type: application/json' \
+  -d '{"urls":["discord://webhook_id/webhook_token"]}'
+```
+
+Send through it:
+
+```bash
 curl -X POST http://localhost:8000/notify/home-alerts \
-  -H "Content-Type: application/json" \
+  -H 'Content-Type: application/json' \
   -d '{
     "title": "Disk Alert",
     "body": "Root partition is 95% full",
@@ -118,213 +146,115 @@ curl -X POST http://localhost:8000/notify/home-alerts \
   }'
 ```
 
-## Common Tasks
-
-### View All Configured Tags
+Review its URLs without exposing secrets:
 
 ```bash
-curl http://localhost:8000/urls | jq .
+curl 'http://localhost:8000/json/urls/home-alerts?privacy=1' | jq .
 ```
 
-### Access Web UI
-
-Open browser to one of:
-
-- `http://localhost:8000/docs` (Swagger)
-- `http://localhost:8000/redoc` (ReDoc)
-- `http://localhost:8000` (JSON API)
-
-### From Network (Other Machine)
+Delete the saved key when it is no longer needed:
 
 ```bash
-# Find Pi's IP
-hostname -I
-
-# Access from other machine
-curl http://<pi-ip>:8000/
+curl -X POST http://localhost:8000/del/home-alerts
 ```
 
-### View Logs
+## Use the Notification Helper
+
+The helper sends through an existing configuration key:
 
 ```bash
-# Real-time logs
-podman logs -f apprise-api
-
-# Or use the provided script
-./scripts/logs.sh --follow
-
-# Systemd logs
-sudo journalctl -u apprise-api -f
-
-# Mailrise logs, if installed
-podman logs -f mailrise
-sudo journalctl -u mailrise -f
+./examples/send-notification.sh home-alerts "Hello" "Test body" info
 ```
 
-### Use Mailrise SMTP Relay
-
-After installing with `--mailrise`, point SMTP-only devices or applications at:
-
-- Host: `<pi-ip>`
-- Port: `8025`
-- Recipient: `notify@mailrise.xyz`
-
-Mailrise uses `/etc/mailrise.conf` in system mode or `~/.config/mailrise/mailrise.conf` in rootless mode. If that file already exists, the installer leaves it unchanged and writes the starter config to `mailrise.conf.example` in the same directory. The default generated config sends mail for `notify` to the Apprise API container:
-
-```yaml
-configs:
-  notify:
-    urls:
-      - apprise://apprise-api:8000/your_apprise_config_key
-```
-
-Test the relay from the Pi with curl:
+The installer includes `jq`, which this helper requires. For a custom API host
+or port, set `APPRISE_URL`:
 
 ```bash
-printf 'Subject: Mailrise curl test\n\nHello from curl via Mailrise\n' > /tmp/mailrise-test.eml
+APPRISE_URL=http://apprise.home.arpa:8000 \
+  ./examples/send-notification.sh home-alerts "Hello" "Test body" info
+```
+
+## Use Mailrise
+
+Mailrise listens on host port `8025` by default. Configure local SMTP clients
+with:
+
+- SMTP host: the server IP or local DNS name
+- SMTP port: `8025`, or the value supplied with `--mailrise-port`
+- Connection security: none, unless manually enabled in `mailrise.conf`
+- Authentication: none, unless manually enabled in `mailrise.conf`
+- Recipient: `notify@mailrise.xyz` for the default `notify` config
+
+Test the default recipient locally:
+
+```bash
+printf 'Subject: Mailrise test\n\nHello from Mailrise\n' > /tmp/mailrise-test.eml
 
 curl -v smtp://127.0.0.1:8025 \
-  --mail-from test@localhost \
+  --mail-from notifications@home.arpa \
   --mail-rcpt notify@mailrise.xyz \
   --upload-file /tmp/mailrise-test.eml
 ```
 
-Successful SMTP delivery ends with `250 OK`. If your config key is a full address, such as `notify@localhost`, use that exact address for `--mail-rcpt`.
+See [CONFIGURATION.md](CONFIGURATION.md#configure-local-applications-and-services)
+for local DNS, SMTP client settings, and recipient routing.
 
-### Monitor Health
+## Common Operations
 
-```bash
-# Quick health check
-./scripts/health-check.sh
-
-# Continuous monitoring
-./scripts/health-check.sh --monitor
-```
-
-### Backup Configuration
+### Logs
 
 ```bash
-# Create backup
-./scripts/backup-config.sh
+# Rootful
+sudo journalctl -u apprise-api -f
+sudo journalctl -u mailrise -f
 
-# Restore from backup
-sudo tar xzf apprise-backup-*.tar.gz -C /
-podman restart apprise-api
+# Rootless
+journalctl --user -u apprise-api -f
+journalctl --user -u mailrise -f
 ```
 
-## Next Steps
-
-### 1. Configure Multiple Services
-
-Add multiple notification channels to a tag:
+### Health Check
 
 ```bash
-curl -X POST http://localhost:8000/add/critical-alerts \
-  -H "Content-Type: application/json" \
-  -d '{
-    "urls": [
-      "discord://webhook_id/webhook_token",
-      "tgram://bot_token/chat_id",
-      "slack://token_a/token_b/token_c"
-    ]
-  }'
+# Rootful
+sudo ./scripts/health-check.sh --mailrise
+
+# Rootless
+./scripts/health-check.sh --mailrise
 ```
 
-### 2. Integrate with Monitoring
-
-Send alerts from Munin, Prometheus, or custom scripts:
+### Backup
 
 ```bash
-# Example: From a cron job
-0 * * * * curl -X POST http://localhost:8000/notify/daily-digest \
-  -d "title=Daily%20Report&body=Check%20complete"
+./scripts/backup-config.sh "$HOME/backups"
 ```
 
-### 3. Set Up Reverse Proxy (for HTTPS)
-
-See [CONFIGURATION.md](CONFIGURATION.md#ssltls-setup)
-
-### 4. Access from Network
-
-Configure firewall:
+If rootful and rootless data both exist, select the intended source explicitly:
 
 ```bash
-sudo ufw allow 8000/tcp
-sudo ufw reload
+APPRISE_DATA_DIR="$HOME/.apprise" \
+MAILRISE_CONFIG_FILE="$HOME/.config/mailrise/mailrise.conf" \
+  ./scripts/backup-config.sh "$HOME/backups"
 ```
-
-Then access from other machines: `http://<pi-ip>:8000`
 
 ## Documentation
 
-- **[README.md](README.md)** - Full overview and features
-- **[INSTALLATION.md](INSTALLATION.md)** - Detailed installation steps
-- **[CONFIGURATION.md](CONFIGURATION.md)** - Advanced configuration
-- **[ROOTLESS.md](ROOTLESS.md)** - Rootless Podman setup
-- **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)** - Common issues and fixes
-- **[examples/](examples/)** - API examples and scripts
-- **[scripts/](scripts/)** - Utility scripts
-
-## API Quick Reference
-
-| Method | Endpoint | Purpose |
-| -------- | ---------- | --------- |
-| `GET` | `/urls` | List all tags |
-| `POST` | `/add/{tag}` | Add notification URLs |
-| `POST` | `/notify/{tag}` | Send notification |
-| `GET` | `/details/{tag}` | Get tag details |
-| `DELETE` | `/remove/{tag}` | Remove tag |
-| `GET` | `/history` | View history |
-| `GET` | `/docs` | API documentation |
-
-Full reference: [examples/api-examples.json](examples/api-examples.json)
+- [Project overview](../README.md)
+- [Installation guide](INSTALLATION.md)
+- [Configuration guide](CONFIGURATION.md)
+- [Rootless guide](ROOTLESS.md)
+- [Troubleshooting guide](TROUBLESHOOTING.md)
+- [API examples](../examples/api-examples.json)
+- [Notification URL examples](../examples/notification-urls.txt)
 
 ## Support
 
-- 📖 See [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for common issues
-- 🔍 Check logs: `podman logs apprise-api`
-- 💬 Apprise documentation: <https://github.com/caronc/apprise/wiki>
-- 🐛 GitHub Issues: <https://github.com/caronc/apprise/issues>
-
-## Tips & Tricks
-
-**Notification Types for Icons:**
-
-```bash
-# Green checkmark
-"type": "success"
-
-# Blue info icon
-"type": "info"
-
-# Yellow warning
-"type": "warning"
-
-# Red error
-"type": "failure"
-```
-
-**Quick Test from CLI:**
-
-```bash
-./examples/send-notification.sh alerts "Test" "Body text" success
-```
-
-**Continuous Health Monitoring:**
-
-```bash
-./scripts/health-check.sh --monitor
-```
-
-**Automated Backups:**
-
-```bash
-# Add to crontab for daily backups
-0 2 * * * /path/to/apprise-api/scripts/backup-config.sh /mnt/backups
-```
-
----
-
-**You're ready!** 🚀 Start sending notifications to your Apprise API.
-
-For more details, see [README.md](README.md) or visit [https://github.com/caronc/apprise](https://github.com/caronc/apprise)
+- Report problems with this repository's documentation, scripts,
+  configurations, or examples to the
+  [homelab-notification issue tracker](https://github.com/Racerx323/homelab-notification/issues).
+- Report upstream Apprise API defects to the
+  [Apprise API issue tracker](https://github.com/caronc/apprise-api/issues).
+- Report notification-service or Apprise URL defects to the
+  [Apprise issue tracker](https://github.com/caronc/apprise/issues).
+- Report upstream Mailrise defects to the
+  [Mailrise issue tracker](https://github.com/YoRyan/mailrise/issues).

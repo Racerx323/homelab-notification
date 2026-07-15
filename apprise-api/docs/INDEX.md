@@ -1,374 +1,230 @@
-# Apprise API Deployment Package
+# Apprise API Deployment Documentation
 
-## Complete Documentation Index
+Documentation and utilities for deploying Apprise API with Podman on Debian 12,
+with optional rootless operation and Mailrise SMTP relay.
 
-Welcome! This package contains everything needed to deploy Apprise API on Debian 12 Raspberry Pi 5 with Podman.
+## Start Here
 
----
+- [Quick start](QUICK_START.md) — deploy and send a first notification
+- [Installation guide](INSTALLATION.md) — complete rootful and rootless setup
+- [Project overview](../README.md) — package contents and design
 
-## 📚 Documentation Files
+## Core Documentation
 
-### Getting Started
+### [Configuration Guide](CONFIGURATION.md)
 
-- **[QUICK_START.md](QUICK_START.md)** ⭐ **START HERE**
-  - 5-minute setup guide
-  - Immediate next steps
-  - Common tasks and examples
-  - Tips & tricks
+- Environment variables and persistent storage
+- Rootful and rootless paths
+- Network and firewall configuration
+- Mailrise installation and routing
+- Local DNS and SMTP client settings for self-hosted applications
+- TLS reverse proxies and systemd resource controls
+- Apprise API configuration keys and tags
+- Notification-service examples
 
-### Core Documentation
+Go directly to
+[Configure Local Applications and Services](CONFIGURATION.md#configure-local-applications-and-services)
+to connect SMTP-capable applications to Mailrise.
 
-- **[README.md](README.md)**
-  - Complete overview of Apprise API
-  - System requirements
-  - Installation methods
-  - Use cases and features
-  - API examples
+### [Rootless Podman Guide](ROOTLESS.md)
 
-- **[INSTALLATION.md](INSTALLATION.md)**
-  - Step-by-step installation guide
-  - Pre-installation checks
-  - Multiple installation methods
-  - Systemd service setup
-  - Post-installation configuration
-  - Uninstallation procedures
+- Rootless packages and subordinate-ID requirements
+- `keep-id` bind-mount behavior
+- User systemd services and lingering
+- Rootless Mailrise setup
+- Storage, backup, restore, and remote deployment
 
-- **[CONFIGURATION.md](CONFIGURATION.md)**
-  - Environment variables
-  - Persistent storage configuration
-  - Network setup and firewall
-  - Mailrise SMTP relay configuration
-  - SSL/TLS setup with reverse proxies (Nginx, Caddy)
-  - Resource limits and tuning
-  - Notification service integration
-  - API tag organization
+### [Troubleshooting Guide](TROUBLESHOOTING.md)
 
-- **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)**
-  - Common issues and solutions
-  - Diagnostic commands
-  - Container issues
-  - Network problems
-  - API issues
-  - Notification delivery
-  - Performance optimization
-  - Getting help
+- Rootful versus rootless command conventions
+- Container, systemd, image-pull, and permission issues
+- Current Apprise API endpoints
+- Network, notification, and Mailrise diagnostics
+- Safe backup, restore, cleanup, and issue reporting
 
-- **[ROOTLESS.md](ROOTLESS.md)**
-  - Rootless Podman installation
-  - User-level systemd services
-  - Rootless Mailrise setup
-  - Lingering and remote deployment
+## Installer
 
----
+The main installer is
+[install-apprise-podman.sh](../install-apprise-podman.sh).
 
-## 🚀 Installation Script
-
-### Main Script
-
-- **[install-apprise-podman.sh](install-apprise-podman.sh)**
-  - Automated installation and deployment
-  - Podman dependency checking
-  - Container image management
-  - Systemd service integration
-  - Optional Mailrise SMTP relay
-  - Health verification
-
-**Usage:**
+### Rootful Systemd Installation
 
 ```bash
 sudo ./install-apprise-podman.sh --systemd
+sudo systemctl enable --now apprise-api
+```
 
-# With Mailrise
-sudo ./install-apprise-podman.sh --systemd --mailrise --mailrise-apprise-key your_apprise_config_key
+### Rootful Installation with Mailrise
 
-# Rootless
+```bash
+sudo ./install-apprise-podman.sh \
+  --systemd \
+  --mailrise \
+  --mailrise-apprise-key your_apprise_config_key
+
+sudo systemctl enable --now apprise-api mailrise
+```
+
+### Rootless Systemd Installation
+
+```bash
 ./install-apprise-podman.sh --rootless --systemd
+systemctl --user enable --now apprise-api
+loginctl enable-linger "$USER"
 ```
 
----
+The installer creates systemd units but does not enable or start them. The
+explicit `enable --now` step is required.
 
-## 🛠️ Utility Scripts
+## Utility Scripts
 
-Located in `scripts/` directory:
-
-### [logs.sh](scripts/logs.sh)
-
-View and monitor Apprise API logs
+### [logs.sh](../scripts/logs.sh)
 
 ```bash
-./scripts/logs.sh --follow          # Real-time logs
-./scripts/logs.sh -e                # Errors only
-./scripts/logs.sh --systemd         # Systemd journal
-./scripts/logs.sh --mailrise        # Mailrise logs
-./scripts/logs.sh --user --mailrise # Rootless Mailrise journal
-```
+# Rootful containers
+sudo ./scripts/logs.sh --follow
+sudo ./scripts/logs.sh --mailrise --follow
 
-### [health-check.sh](scripts/health-check.sh)
-
-Check health and status of Apprise API
-
-```bash
-./scripts/health-check.sh           # Quick check
-./scripts/health-check.sh --verbose # Detailed info
-./scripts/health-check.sh --monitor # Continuous monitoring
-./scripts/health-check.sh --mailrise # Include Mailrise checks
-```
-
-### [backup-config.sh](scripts/backup-config.sh)
-
-Backup and restore configuration
-
-```bash
-./scripts/backup-config.sh          # Create backup
-./scripts/backup-config.sh /mnt/backups  # Custom location
-```
-
----
-
-## 📋 Examples
-
-Located in `examples/` directory:
-
-### [send-notification.sh](examples/send-notification.sh)
-
-Send notifications from command line
-
-```bash
-./examples/send-notification.sh alerts "Title" "Body text" info
-./examples/send-notification.sh critical "Error" "Something failed" failure
-```
-
-### [api-examples.json](examples/api-examples.json)
-
-- Complete API endpoint reference
-- Example request/response bodies
-- Curl command examples
-- Workflow examples
-- Integration patterns
-
-### [notification-urls.txt](examples/notification-urls.txt)
-
-- URL formats for 15+ notification services
-- Discord, Telegram, Slack, Email, etc.
-- Setup instructions for each service
-
----
-
-## 🐳 Container Configuration
-
-### [podman-compose.yml](podman-compose.yml)
-
-Alternative deployment using podman-compose
-
-```bash
-podman-compose -f podman-compose.yml up -d
-```
-
-Includes:
-
-- Service configuration
-- Resource limits
-- Health checks
-- Environment variables
-- Volume management
-
----
-
-## 📖 Reading Guide
-
-### For First-Time Users
-
-1. Start with **[QUICK_START.md](QUICK_START.md)** (5 min read)
-2. Run installation script
-3. Send your first notification
-4. Read **[README.md](README.md)** for full overview
-
-### For Installation & Setup
-
-1. **[INSTALLATION.md](INSTALLATION.md)** - Complete walkthrough
-2. Run **[install-apprise-podman.sh](install-apprise-podman.sh)**
-3. Use **[health-check.sh](scripts/health-check.sh)** to verify
-
-### For Configuration & Customization
-
-1. **[CONFIGURATION.md](CONFIGURATION.md)** - All options
-2. **[examples/api-examples.json](examples/api-examples.json)** - API patterns
-3. **[examples/notification-urls.txt](examples/notification-urls.txt)** - Service URLs
-
-### For Troubleshooting
-
-1. **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)** - Issue solutions
-2. **[logs.sh](scripts/logs.sh)** - View error logs
-3. **[health-check.sh](scripts/health-check.sh)** - Diagnose problems
-
----
-
-## 🎯 Quick Reference
-
-### Installation (2 minutes)
-
-```bash
-cd /path/to/apprise-api
-sudo ./install-apprise-podman.sh --systemd
-```
-
-### Installation with Mailrise SMTP Relay
-
-```bash
-cd /path/to/apprise-api
-sudo ./install-apprise-podman.sh --systemd --mailrise --mailrise-apprise-key your_apprise_config_key
-```
-
-### Send First Notification (1 minute)
-
-```bash
-curl -X POST http://localhost:8000/notify \
-  -H "Content-Type: application/json" \
-  -d '{
-    "title": "Hello",
-    "body": "My first notification",
-    "urls": "discord://webhook_id/webhook_token"
-  }'
-```
-
-### Access API
-
-- **API Root:** `http://localhost:8000`
-- **Swagger UI:** `http://localhost:8000/docs`
-- **ReDoc:** `http://localhost:8000/redoc`
-
-### Common Commands
-
-```bash
-# View status
-podman ps | grep apprise
-podman ps | grep mailrise
-
-# View logs
+# Rootless containers or user journal
 ./scripts/logs.sh --follow
-./scripts/logs.sh --mailrise --follow
-
-# Health check
-./scripts/health-check.sh
-./scripts/health-check.sh --mailrise
-
-# Backup config
-./scripts/backup-config.sh
-
-# Send notification
-./examples/send-notification.sh alerts "Title" "Body" success
+./scripts/logs.sh --user --mailrise --follow
 ```
 
-### Systemd Management
+### [health-check.sh](../scripts/health-check.sh)
 
 ```bash
-sudo systemctl start apprise-api
-sudo systemctl stop apprise-api
-sudo systemctl restart apprise-api
+# Rootful container inspection
+sudo ./scripts/health-check.sh --mailrise
+
+# Rootless container inspection
+./scripts/health-check.sh --mailrise
+```
+
+### [backup-config.sh](../scripts/backup-config.sh)
+
+```bash
+./scripts/backup-config.sh "$HOME/backups"
+```
+
+The backup script creates a compressed archive and matching SHA-256 checksum.
+Stop managed services and verify the checksum before restoring.
+
+## Examples
+
+- [API examples](../examples/api-examples.json) — current request methods,
+  endpoints, and payloads
+- [Notification URL examples](../examples/notification-urls.txt) — placeholder
+  Apprise service URLs
+- [Notification helper](../examples/send-notification.sh) — send through an
+  existing configuration key
+
+Example:
+
+```bash
+./examples/send-notification.sh home-alerts "Title" "Body" success
+```
+
+## API Quick Reference
+
+| Method | Endpoint | Purpose |
+| ------ | -------- | ------- |
+| `GET` | `/status` | Health and persistent-storage status |
+| `POST` | `/notify` | Stateless notification using supplied URLs |
+| `POST` | `/add/{KEY}` | Save a persistent configuration |
+| `POST` | `/notify/{KEY}` | Notify through a saved configuration |
+| `POST` | `/get/{KEY}` | Retrieve a saved configuration |
+| `POST` | `/del/{KEY}` | Delete a saved configuration |
+| `GET` | `/json/urls/{KEY}?privacy=1` | List URLs and tags while masking secrets |
+| `GET` | `/details` | List supported Apprise services |
+| `GET` | `/metrics` | Prometheus metrics |
+
+The standard container serves its configuration interface at
+`http://localhost:8000/`. It does not expose Swagger at `/docs` or ReDoc at
+`/redoc`.
+
+## Container and Service Commands
+
+Rootful containers belong to root:
+
+```bash
+sudo podman ps
+sudo podman logs -f apprise-api
 sudo systemctl status apprise-api
 sudo journalctl -u apprise-api -f
-
-# Mailrise, if installed
-sudo systemctl start mailrise
-sudo systemctl stop mailrise
-sudo systemctl restart mailrise
-sudo systemctl status mailrise
-sudo journalctl -u mailrise -f
 ```
 
----
+Rootless containers belong to the installing user:
 
-## 📊 Directory Structure
+```bash
+podman ps
+podman logs -f apprise-api
+systemctl --user status apprise-api
+journalctl --user -u apprise-api -f
+```
+
+## Package Layout
 
 ```text
 apprise-api/
-├── README.md                      # Overview and features
-├── QUICK_START.md                 # 5-minute setup (START HERE)
-├── INSTALLATION.md                # Detailed installation
-├── CONFIGURATION.md               # Configuration reference
-├── TROUBLESHOOTING.md             # Common issues & solutions
-├── INDEX.md                       # This file
-├── install-apprise-podman.sh      # Main installation script
-├── podman-compose.yml             # Docker Compose config
-│
-├── examples/                       # Example configurations
-│   ├── send-notification.sh        # CLI notification script
-│   ├── api-examples.json           # API reference with examples
-│   └── notification-urls.txt       # Notification service URLs
-│
-└── scripts/                        # Utility scripts
-    ├── logs.sh                     # View logs
-    ├── health-check.sh             # Health monitoring
-    └── backup-config.sh            # Backup/restore
+├── README.md
+├── install-apprise-podman.sh
+├── podman-compose.yml
+├── configuration/
+│   └── mailrise.conf
+├── docs/
+│   ├── INDEX.md
+│   ├── QUICK_START.md
+│   ├── INSTALLATION.md
+│   ├── CONFIGURATION.md
+│   ├── ROOTLESS.md
+│   └── TROUBLESHOOTING.md
+├── examples/
+│   ├── api-examples.json
+│   ├── notification-urls.txt
+│   └── send-notification.sh
+└── scripts/
+    ├── backup-config.sh
+    ├── health-check.sh
+    └── logs.sh
 ```
 
----
+## External Resources
 
-## ✨ Key Features
+- [Apprise API](https://github.com/caronc/apprise-api)
+- [Apprise service documentation](https://appriseit.com/services/)
+- [Mailrise](https://github.com/YoRyan/mailrise)
+- [Podman documentation](https://podman.io/docs)
 
-✅ **Automated Installation** - Single script handles everything  
-✅ **Podman 4.3.1 Compatible** - Tested on Raspberry Pi 5  
-✅ **Systemd Integration** - Auto-start on boot  
-✅ **Rootless Mode** - User-level services without sudo  
-✅ **Mailrise SMTP Relay** - Optional email-to-Apprise bridge  
-✅ **100+ Services** - Discord, Telegram, Slack, Email, etc.  
-✅ **Persistent Storage** - Configuration survives restarts  
-✅ **Health Monitoring** - Built-in Apprise and optional Mailrise checks  
-✅ **Comprehensive Docs** - Complete documentation included  
-✅ **Example Scripts** - Copy-paste ready examples  
-✅ **Backup Support** - Easy backup/restore  
-✅ **Reverse Proxy Ready** - HTTPS setup included  
+## Support
 
----
+Start with the relevant installation, configuration, or troubleshooting guide.
+When an issue remains, route it according to ownership.
 
-## 🔗 External Resources
+### Where to Open an Issue
 
-- **Apprise GitHub:** <https://github.com/caronc/apprise>
-- **Apprise Wiki:** <https://github.com/caronc/apprise/wiki>
-- **Supported Notifiers:** <https://github.com/caronc/apprise/wiki/Apprise_Notification_Services>
-- **Apprise API:** <https://github.com/caronc/apprise-api>
-- **Mailrise:** <https://github.com/YoRyan/mailrise>
-- **Podman Docs:** <https://podman.io/docs>
+- **This deployment package:** Open an issue in the
+  [homelab-notification issue tracker](https://github.com/Racerx323/homelab-notification/issues)
+  for problems with information, documentation, installation or utility
+  scripts, configurations, examples, and other files provided by this
+  repository.
+- **Apprise API:** Report upstream API application defects in the
+  [Apprise API issue tracker](https://github.com/caronc/apprise-api/issues).
+- **Apprise:** Report notification-service, Apprise URL, or core notification
+  defects in the [Apprise issue tracker](https://github.com/caronc/apprise/issues).
+- **Mailrise:** Report upstream SMTP processing or routing defects in the
+  [Mailrise issue tracker](https://github.com/YoRyan/mailrise/issues).
 
----
+If a problem is caused by a script or configuration supplied here, open it with
+`homelab-notification` even when Apprise API or Mailrise is the affected service.
 
-## 💡 Tips
+## Verification Checklist
 
-- Start with **[QUICK_START.md](QUICK_START.md)** for immediate results
-- Use **[health-check.sh](scripts/health-check.sh)** to verify setup
-- Enable **--systemd** for production deployments
-- Add **--mailrise** when SMTP-only devices need to send notifications
-- Regular backups: `./scripts/backup-config.sh /backups`
-- Check logs when issues occur: `./scripts/logs.sh --follow`
-- Monitor performance: `./scripts/health-check.sh --monitor`
+- [ ] The appropriate rootful or rootless service is enabled and active
+- [ ] `GET /status` returns HTTP `200`
+- [ ] Persistent storage is writable according to the status response
+- [ ] A stateless test notification succeeds
+- [ ] A persistent configuration key can be added and notified
+- [ ] Mailrise accepts SMTP for a configured recipient, if installed
+- [ ] A backup and checksum can be created
 
----
-
-## 📞 Support
-
-1. **Installation Help:** See [INSTALLATION.md](INSTALLATION.md)
-2. **Configuration Questions:** See [CONFIGURATION.md](CONFIGURATION.md)
-3. **Issues & Errors:** See [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
-4. **API Questions:** See [examples/api-examples.json](examples/api-examples.json)
-5. **External Help:** <https://github.com/caronc/apprise/issues>
-
----
-
-## ✅ Verification Checklist
-
-After installation, verify:
-
-- [ ] Container running: `podman ps | grep apprise`
-- [ ] Mailrise running, if installed: `podman ps | grep mailrise`
-- [ ] API responsive: `curl http://localhost:8000`
-- [ ] Health check: `./scripts/health-check.sh`
-- [ ] Can access web UI: `http://localhost:8000/docs`
-- [ ] Can send notification: `./examples/send-notification.sh ...`
-- [ ] Backup works: `./scripts/backup-config.sh`
-
----
-
-**Ready to get started?** → Go to [QUICK_START.md](QUICK_START.md)
-
-**Last Updated:** July 2026  
-**Tested On:** Debian 12, Raspberry Pi 5, Podman 4.3.1
+**Last reviewed:** July 2026

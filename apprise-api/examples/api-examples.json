@@ -4,38 +4,22 @@
       "name": "Send Simple Notification",
       "method": "POST",
       "endpoint": "/notify",
-      "description": "Send a notification to the default configuration",
+      "description": "Send a stateless notification directly to one or more Apprise URLs",
       "body": {
         "title": "System Alert",
         "body": "This is a test notification",
-        "type": "info"
+        "type": "info",
+        "urls": [
+          "discord://webhook_id/webhook_token"
+        ]
       },
-      "curl_command": "curl -X POST http://localhost:8000/notify -H 'Content-Type: application/json' -d '{\"title\": \"System Alert\", \"body\": \"This is a test notification\", \"type\": \"info\"}'"
+      "curl_command": "curl -X POST http://localhost:8000/notify -H 'Content-Type: application/json' -d '{\"title\": \"System Alert\", \"body\": \"This is a test notification\", \"type\": \"info\", \"urls\": [\"discord://webhook_id/webhook_token\"]}'"
     },
     {
-      "name": "Send to Tagged Group",
+      "name": "Add a Persistent Configuration",
       "method": "POST",
-      "endpoint": "/notify/{tag}",
-      "description": "Send notification to a specific tag/group",
-      "body": {
-        "title": "Critical Alert",
-        "body": "Server down",
-        "type": "failure"
-      },
-      "curl_command": "curl -X POST http://localhost:8000/notify/critical-alerts -H 'Content-Type: application/json' -d '{\"title\": \"Critical Alert\", \"body\": \"Server down\", \"type\": \"failure\"}'"
-    },
-    {
-      "name": "List All Configured URLs",
-      "method": "GET",
-      "endpoint": "/urls",
-      "description": "Get list of all configured notification URLs/tags",
-      "curl_command": "curl http://localhost:8000/urls"
-    },
-    {
-      "name": "Add New Notification URL",
-      "method": "POST",
-      "endpoint": "/add/{tag}",
-      "description": "Add notification URL(s) to a tag",
+      "endpoint": "/add/{key}",
+      "description": "Save one or more notification URLs under a configuration key",
       "body": {
         "urls": [
           "discord://webhook_id/webhook_token"
@@ -44,32 +28,44 @@
       "curl_command": "curl -X POST http://localhost:8000/add/alerts -H 'Content-Type: application/json' -d '{\"urls\": [\"discord://webhook_id/webhook_token\"]}'"
     },
     {
-      "name": "Get Tag Details",
+      "name": "Send to a Persistent Configuration",
+      "method": "POST",
+      "endpoint": "/notify/{key}",
+      "description": "Send a notification through a saved configuration key",
+      "body": {
+        "title": "Critical Alert",
+        "body": "Server down",
+        "type": "failure"
+      },
+      "curl_command": "curl -X POST http://localhost:8000/notify/alerts -H 'Content-Type: application/json' -d '{\"title\": \"Critical Alert\", \"body\": \"Server down\", \"type\": \"failure\"}'"
+    },
+    {
+      "name": "List URLs in a Configuration",
       "method": "GET",
-      "endpoint": "/details/{tag}",
-      "description": "Get details about a specific tag",
-      "curl_command": "curl http://localhost:8000/details/alerts"
+      "endpoint": "/json/urls/{key}",
+      "description": "Return the URLs and tags associated with a configuration key while masking secrets",
+      "curl_command": "curl 'http://localhost:8000/json/urls/alerts?privacy=1'"
     },
     {
-      "name": "Remove URL from Tag",
-      "method": "DELETE",
-      "endpoint": "/remove/{tag}/{url}",
-      "description": "Remove a notification URL from a tag",
-      "curl_command": "curl -X DELETE 'http://localhost:8000/remove/alerts/discord%3A%2F%2Fwebhook_id%2Fwebhook_token'"
+      "name": "Get a Persistent Configuration",
+      "method": "POST",
+      "endpoint": "/get/{key}",
+      "description": "Return the saved Apprise configuration associated with a key",
+      "curl_command": "curl -X POST http://localhost:8000/get/alerts"
     },
     {
-      "name": "Get Notification History",
+      "name": "Delete a Persistent Configuration",
+      "method": "POST",
+      "endpoint": "/del/{key}",
+      "description": "Delete the configuration associated with a key",
+      "curl_command": "curl -X POST http://localhost:8000/del/alerts"
+    },
+    {
+      "name": "Check API Status",
       "method": "GET",
-      "endpoint": "/history",
-      "description": "Get history of sent notifications",
-      "curl_command": "curl http://localhost:8000/history"
-    },
-    {
-      "name": "Purge Configuration",
-      "method": "DELETE",
-      "endpoint": "/urls",
-      "description": "Delete all stored configurations (WARNING: destructive)",
-      "curl_command": "curl -X DELETE http://localhost:8000/urls"
+      "endpoint": "/status",
+      "description": "Check API health and persistent-storage permissions",
+      "curl_command": "curl -H 'Accept: application/json' http://localhost:8000/status"
     }
   ],
   "notification_types": [
@@ -108,13 +104,13 @@
     },
     "email_gmail": {
       "description": "Send via Gmail",
-      "url_format": "mailsmtp://email:password@smtp.gmail.com:587/?from=email@gmail.com",
-      "setup": "Enable 'Less secure apps' or use App Password with 2FA"
+      "url_format": "mailto://email:app-password@gmail.com",
+      "setup": "Enable 2-Step Verification and create a Google App Password"
     },
     "email_outlook": {
-      "description": "Send via Outlook",
-      "url_format": "mailsmtp://email:password@smtp.office365.com:587/?from=email@outlook.com",
-      "setup": "Use your Outlook/Office365 credentials"
+      "description": "Send through Microsoft 365 using Microsoft Graph",
+      "url_format": "o365://TenantID:AccountEmail/ClientID/ClientSecret/TargetEmail",
+      "setup": "Register an application in Microsoft Entra ID and grant the required Microsoft Graph mail permission"
     },
     "webhook": {
       "description": "Send to custom webhook",
@@ -127,25 +123,25 @@
       "name": "System Monitoring Alert",
       "description": "Send alert when disk is full",
       "steps": [
-        "Add tag: curl -X POST http://localhost:8000/add/disk-alerts -d '{\"urls\": [\"discord://webhook/token\"]}'",
-        "From cron: curl -X POST http://localhost:8000/notify/disk-alerts -d '{\"title\": \"Disk Alert\", \"body\": \"95% full\", \"type\": \"failure\"}'"
+        "Add key: curl -X POST http://localhost:8000/add/disk-alerts -H 'Content-Type: application/json' -d '{\"urls\": [\"discord://webhook/token\"]}'",
+        "From cron: curl -X POST http://localhost:8000/notify/disk-alerts -H 'Content-Type: application/json' -d '{\"title\": \"Disk Alert\", \"body\": \"95% full\", \"type\": \"failure\"}'"
       ]
     },
     {
       "name": "Backup Notifications",
       "description": "Notify about backup completion",
       "steps": [
-        "Set up tag for backup team",
-        "After backup completes, send success notification",
-        "If backup fails, send failure notification"
+        "Set up a configuration key for the backup team",
+        "After the backup completes, send a success notification to that key",
+        "If the backup fails, send a failure notification to that key"
       ]
     },
     {
       "name": "Multi-Channel Notifications",
       "description": "Send same message to multiple platforms",
       "steps": [
-        "Add multiple URLs to same tag: Discord, Telegram, Email",
-        "Send once to tag, reaches all platforms"
+        "Add multiple URLs to the same configuration key",
+        "Send once to the key to reach all configured platforms"
       ]
     }
   ]

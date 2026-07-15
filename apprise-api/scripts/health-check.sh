@@ -124,7 +124,8 @@ detect_apprise_data_dir
 
 # Health check function
 run_health_check() {
-    local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+    local timestamp
+    timestamp=$(date '+%Y-%m-%d %H:%M:%S')
     
     if [[ "$MONITOR" != true ]]; then
         echo -e "${BLUE}=== Apprise API Health Check ===${NC}"
@@ -138,7 +139,8 @@ run_health_check() {
     # Check 1: Container Status
     echo -n "Container Status: "
     if podman container exists apprise-api 2>/dev/null; then
-        local status=$(podman container inspect apprise-api --format='{{.State.Status}}' 2>/dev/null)
+        local status
+        status=$(podman container inspect apprise-api --format='{{.State.Status}}' 2>/dev/null || true)
         if [[ "$status" == "running" ]]; then
             log_info "Running"
         else
@@ -152,7 +154,7 @@ run_health_check() {
     
     # Check 2: API Connectivity
     echo -n "API Connectivity: "
-    if curl -s -m 5 "$APPRISE_URL" > /dev/null 2>&1; then
+    if curl -fsS -m 5 "$APPRISE_URL/status" > /dev/null 2>&1; then
         log_info "OK"
     else
         log_error "Cannot reach API"
@@ -161,7 +163,8 @@ run_health_check() {
     
     # Check 3: API Response
     echo -n "API Response Time: "
-    local response_time=$(curl -s -m 10 -w "%{time_total}" -o /dev/null "$APPRISE_URL" 2>/dev/null)
+    local response_time
+    response_time=$(curl -s -m 10 -w "%{time_total}" -o /dev/null "$APPRISE_URL/status" 2>/dev/null || true)
     if [[ -n "$response_time" ]]; then
         local response_time_ms
         response_time_ms=$(awk -v seconds="$response_time" 'BEGIN { printf "%.0f", seconds * 1000 }')
@@ -175,9 +178,9 @@ run_health_check() {
         all_ok=false
     fi
     
-    # Check 4: Notification Endpoints
-    echo -n "Notification Endpoint: "
-    if curl -s -m 5 "$APPRISE_URL/notify" > /dev/null 2>&1; then
+    # Check 4: Status Endpoint
+    echo -n "Status Endpoint: "
+    if curl -fsS -m 5 "$APPRISE_URL/status" > /dev/null 2>&1; then
         log_info "OK"
     else
         log_error "Not responding"
@@ -187,7 +190,8 @@ run_health_check() {
     # Check 5: Storage
     echo -n "Storage: "
     if [[ -d "$APPRISE_DATA_DIR" ]]; then
-        local available=$(df -k "$APPRISE_DATA_DIR" | awk 'NR == 2 {print $4}')
+        local available
+        available=$(df -k "$APPRISE_DATA_DIR" | awk 'NR == 2 {print $4}')
         if [[ $available -gt 102400 ]]; then  # > 100MB free
             log_info "OK ($(df -h "$APPRISE_DATA_DIR" | awk 'NR == 2 {print $4}') free at $APPRISE_DATA_DIR)"
         else
@@ -201,7 +205,8 @@ run_health_check() {
     # Check 6: Resource Usage
     echo -n "Memory Usage: "
     if podman container exists apprise-api 2>/dev/null; then
-        local mem=$(podman stats apprise-api --no-stream --format="{{.MemUsage}}" 2>/dev/null)
+        local mem
+        mem=$(podman stats apprise-api --no-stream --format="{{.MemUsage}}" 2>/dev/null || true)
         if [[ -n "$mem" ]]; then
             log_info "$mem"
         else
@@ -233,7 +238,8 @@ run_health_check() {
     if [[ "$CHECK_MAILRISE" == true ]]; then
         echo -n "Mailrise Container: "
         if podman container exists mailrise 2>/dev/null; then
-            local mailrise_status=$(podman container inspect mailrise --format='{{.State.Status}}' 2>/dev/null)
+            local mailrise_status
+            mailrise_status=$(podman container inspect mailrise --format='{{.State.Status}}' 2>/dev/null || true)
             if [[ "$mailrise_status" == "running" ]]; then
                 log_info "Running"
             else
@@ -300,22 +306,15 @@ run_health_check() {
   Restart Count: {{.RestartCount}}' 2>/dev/null || true
         fi
         
-        # API endpoints
+        # API status
         echo ""
-        echo -e "${BLUE}Available Endpoints:${NC}"
-        local endpoints=$(curl -s "$APPRISE_URL/docs" 2>/dev/null | grep -oP '"path":"[^"]+' | cut -d'"' -f4 | sort -u | head -10)
-        if [[ -n "$endpoints" ]]; then
-            echo "$endpoints" | sed 's/^/  /'
+        echo -e "${BLUE}API Status:${NC}"
+        local api_status
+        api_status=$(curl -fsS -H "Accept: application/json" "$APPRISE_URL/status" 2>/dev/null || true)
+        if [[ -n "$api_status" ]]; then
+            echo "$api_status" | jq . 2>/dev/null || echo "$api_status"
         else
-            echo "  Unable to retrieve endpoints"
-        fi
-        
-        # Configuration count
-        echo ""
-        echo -e "${BLUE}Configuration Summary:${NC}"
-        if curl -s "$APPRISE_URL/urls" > /dev/null 2>&1; then
-            local count=$(curl -s "$APPRISE_URL/urls" | jq -r '. | keys | length' 2>/dev/null || echo "unknown")
-            echo "  Configured Tags/URLs: $count"
+            echo "  Unable to retrieve status"
         fi
     fi
     
@@ -326,7 +325,10 @@ run_health_check() {
         log_error "Some checks failed!"
     fi
     
-    return $([ "$all_ok" = true ] && echo 0 || echo 1)
+    if [[ "$all_ok" == true ]]; then
+        return 0
+    fi
+    return 1
 }
 
 # Main execution

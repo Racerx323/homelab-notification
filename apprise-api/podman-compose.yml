@@ -12,8 +12,7 @@ services:
     container_name: apprise-api
     
     # Restart policy
-    restart_policy: always
-    restart_max_retries: 3
+    restart: always
     
     # Port mappings
     ports:
@@ -62,7 +61,7 @@ services:
     
     # Healthcheck
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/notify"]
+      test: ["CMD", "curl", "-f", "http://localhost:8000/status"]
       interval: 30s
       timeout: 5s
       retries: 3

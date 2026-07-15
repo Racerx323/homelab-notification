@@ -11,7 +11,7 @@ Complete reference for configuring Apprise API after installation.
 - [SSL/TLS Setup](#ssltls-setup)
 - [Advanced Configuration](#advanced-configuration)
 - [Notification Service Integration](#notification-service-integration)
-- [API Tags and Organization](#api-tags-and-organization)
+- [Configuration Keys and Tags](#configuration-keys-and-tags)
 
 ## Environment Variables
 
@@ -43,8 +43,9 @@ sudo systemctl restart apprise-api
 #### For Direct Podman Run
 
 ```bash
-podman run -d \
+sudo podman run -d \
   --name apprise-api \
+  --user 1000:1000 \
   -p 8000:8000 \
   -e APPRISE_STORAGE_DIR=/config \
   -v /var/lib/apprise/config:/config \
@@ -106,16 +107,16 @@ mkdir -p "$BACKUP_DIR"
 #### Restore Configuration
 
 ```bash
-#!/bin/bash
-# Stop the service
-sudo systemctl stop apprise-api
+cd "$HOME/backups"
+sha256sum -c apprise-backup-YYYYMMDD_HHMMSS.tar.gz.sha256
 
-# Restore from backup
-sudo tar xzf apprise-backup-*.tar.gz -C /
-
-# Restart service
-sudo systemctl start apprise-api
+sudo systemctl stop mailrise apprise-api
+sudo tar xzf apprise-backup-YYYYMMDD_HHMMSS.tar.gz -C /
+sudo systemctl start apprise-api mailrise
 ```
+
+Omit Mailrise commands when it is not installed. For rootless restore, stop and
+start user services with `systemctl --user` and extract as the rootless user.
 
 ### Change Storage Location
 
@@ -132,7 +133,7 @@ To use a different storage directory:
 
     ```text
     sudo cp -r /var/lib/apprise/* /mnt/apprise-storage/
-    sudo chown -R 0:0 /mnt/apprise-storage
+    sudo chown -R 1000:1000 /mnt/apprise-storage
     ```
 
 3. Update systemd service:
@@ -144,8 +145,9 @@ To use a different storage directory:
 4. Change the volume line:
 
     ```text
-    ExecStart=podman run --rm \
+    ExecStart=/usr/bin/podman run --rm \
     --name apprise-api \
+    --user 1000:1000 \
     -p 8000:8000 \
     -v /mnt/apprise-storage/config:/config \
     -v /mnt/apprise-storage/plugin:/plugin \
@@ -181,10 +183,10 @@ ifconfig
 
 ```bash
 # From another machine on network
-curl http://<pi-ip>:8000/notify
+curl http://SERVER_IP:8000/status
 
 # From the Pi itself
-curl http://localhost:8000/notify
+curl http://localhost:8000/status
 ```
 
 ### Firewall Configuration
@@ -217,50 +219,26 @@ sudo firewall-cmd --list-all
 
 ### Port Configuration
 
-Change API port:
+Regenerate the service with the desired host port so all installer-managed
+runtime options remain intact:
 
-1. Stop the service:
+```bash
+sudo ./install-apprise-podman.sh --systemd --port 9000
+sudo systemctl restart apprise-api
+curl http://localhost:9000/status
+```
 
-    ```text
-    sudo systemctl stop apprise-api
-    ```
-
-2. Update systemd service:
-
-    ```text
-    sudo nano /etc/systemd/system/apprise-api.service
-    ```
-
-3. Change port mapping (e.g., 9000):
-
-    ```text
-    ExecStart=podman run --rm \
-    --name apprise-api \
-    -p 9000:8000 \
-    -v /var/lib/apprise/config:/config \
-    -v /var/lib/apprise/plugin:/plugin \
-    -v /var/lib/apprise/attach:/attach \
-    docker.io/caronc/apprise:latest
-    ```
-
-4. Reload and restart:
-
-    ```text
-    sudo systemctl daemon-reload
-    sudo systemctl restart apprise-api
-    ```
-
-5. Verify:
-
-    ```text
-    curl http://localhost:9000/notify
-    ```
+Include the original Mailrise options when Mailrise is installed.
 
 ### Shared Podman Network for Mailrise
 
 When the installer runs with `--mailrise`, it creates a Podman network named `notify-network`:
 
 ```bash
+# Rootful
+sudo podman network inspect notify-network
+
+# Rootless
 podman network inspect notify-network
 ```
 
@@ -278,12 +256,14 @@ Mailrise is optional and installed with:
 
 ```bash
 sudo ./install-apprise-podman.sh --systemd --mailrise --mailrise-apprise-key your_apprise_config_key
+sudo systemctl enable --now apprise-api mailrise
 ```
 
 Rootless:
 
 ```bash
 ./install-apprise-podman.sh --rootless --systemd --mailrise --mailrise-apprise-key your_apprise_config_key
+systemctl --user enable --now apprise-api mailrise
 ```
 
 ### Generated Mailrise Configuration
@@ -330,9 +310,82 @@ sudo ./install-apprise-podman.sh --systemd --mailrise --mailrise-port 2525 --mai
 
 Point SMTP clients at:
 
-- Host: `<pi-ip>`
+- Host: `SERVER_IP`
 - Port: `8025` or your `--mailrise-port`
 - Recipient: `notify@mailrise.xyz`
+
+### Configure Local Applications and Services
+
+Configure each self-hosted application as an SMTP client of Mailrise. A local
+DNS name is optional, but it is easier to remember and allows the Mailrise host
+to move to a different IP address without reconfiguring every application.
+
+#### Optional Local DNS Record
+
+Add a record to your local DNS server, such as Pi-hole, AdGuard Home, or your
+router:
+
+| Setting | Example |
+| ---------- | --------- |
+| Record type | `A` |
+| Name | `mailrise.home.arpa` |
+| Address | `10.0.0.10` |
+
+Use an `A` record when pointing directly to the Mailrise server's IP address.
+If the server already has a DNS name, you can instead create a `CNAME` that
+points `mailrise.home.arpa` to that hostname. Ensure the sending applications
+use your local DNS server and can resolve the name. Otherwise, use the server's
+IP address directly.
+
+`home.arpa` is reserved for home-network naming. You can instead use a
+subdomain of a domain you own if your local DNS server resolves it internally.
+
+Mailrise accepts SMTP connections directly and converts messages to Apprise
+notifications; it does not deliver these messages to public email providers.
+An internal-only deployment therefore does not require public MX, SPF, DKIM,
+or DMARC records. The `mailrise.xyz` recipient domain is a Mailrise routing
+convention and does not need to resolve to your server.
+
+#### SMTP Client Settings
+
+Use the following settings in each sending application:
+
+| Setting | Value |
+| ---------- | --------- |
+| SMTP server or host | `mailrise.home.arpa` or the Mailrise server's IP address |
+| SMTP port | `8025` or your `--mailrise-port` value |
+| Connection security | None |
+| SMTP authentication | None |
+| Username and password | Leave blank |
+| From address | Any valid address, such as `notifications@home.arpa` |
+| Recipient | `<config-name>@mailrise.xyz` |
+
+These security settings match the default generated Mailrise configuration.
+If you manually enable TLS or SMTP authentication in `mailrise.conf`, configure
+the application to use the same settings. Do not use basic authentication over
+an unencrypted connection.
+
+The recipient username selects a key under `configs` in `mailrise.conf`. For
+example, this configuration defines the recipients `notify@mailrise.xyz` and
+`critical@mailrise.xyz`:
+
+```yaml
+configs:
+  notify:
+    urls:
+      - apprise://apprise-api:8000/your_apprise_config_key
+  critical:
+    urls:
+      - apprise://apprise-api:8000/critical-alerts
+```
+
+If a config key is a complete email address, send to that exact address instead
+of appending `@mailrise.xyz`.
+
+Because the default SMTP listener has no encryption or authentication, expose
+the Mailrise port only to trusted hosts and networks. If applications are on a
+different VLAN, allow the configured SMTP port through the firewall between
+that VLAN and the Mailrise server.
 
 ### Test Mailrise with curl
 
@@ -379,6 +432,11 @@ curl -v smtp://127.0.0.1:8025 \
 Successful SMTP delivery shows `250 OK` after `MAIL FROM`, `RCPT TO`, and `DATA`. Then check delivery logs:
 
 ```bash
+# Rootful
+sudo podman logs --tail 50 mailrise
+sudo podman logs --tail 50 apprise-api
+
+# Rootless
 podman logs --tail 50 mailrise
 podman logs --tail 50 apprise-api
 ```
@@ -386,8 +444,7 @@ podman logs --tail 50 apprise-api
 ### Mailrise Service Management
 
 ```bash
-sudo systemctl enable mailrise
-sudo systemctl start mailrise
+sudo systemctl enable --now mailrise
 sudo systemctl status mailrise
 sudo journalctl -u mailrise -f
 ```
@@ -544,10 +601,10 @@ sudo systemctl daemon-reload
 sudo systemctl restart apprise-api
 ```
 
-Monitor resources:
+Monitor rootful resources:
 
 ```text
-podman stats apprise-api
+sudo podman stats apprise-api
 ```
 
 ### Increase Request Size
@@ -612,8 +669,15 @@ Get tokens from Slack app configuration
 
 ```json
 {
-  "urls": ["mailsmtp://user:password@smtp.gmail.com:587/?from=user@gmail.com"]
+  "urls": ["mailto://user:google_app_password@gmail.com"]
 }
+```
+
+Gmail requires 2-Step Verification and an App Password. For Microsoft 365,
+use the Microsoft Graph-based `o365://` service rather than basic SMTP:
+
+```text
+o365://TenantID:AccountEmail/ClientID/ClientSecret/TargetEmail
 ```
 
 ### PagerDuty
@@ -632,7 +696,7 @@ Get tokens from Slack app configuration
 }
 ```
 
-### Multiple Services (Tag)
+### Multiple Services (Configuration Key)
 
 ```bash
 curl -X POST http://localhost:8000/add/alerts \
@@ -646,9 +710,13 @@ curl -X POST http://localhost:8000/add/alerts \
   }'
 ```
 
-## API Tags and Organization
+## Configuration Keys and Tags
 
-### Create a Tag
+Apprise API stores persistent configurations under a key. The key appears in
+paths such as `/add/{KEY}` and `/notify/{KEY}`. Apprise tags are optional
+filters defined inside the saved configuration; they are not API keys.
+
+### Create a Configuration Key
 
 ```bash
 curl -X POST http://localhost:8000/add/critical-alerts \
@@ -660,13 +728,13 @@ curl -X POST http://localhost:8000/add/critical-alerts \
   }'
 ```
 
-### List All Tags
+### List URLs and Tags for a Key
 
 ```bash
-curl http://localhost:8000/urls
+curl 'http://localhost:8000/json/urls/critical-alerts?privacy=1'
 ```
 
-### Send to Tag
+### Send to a Configuration Key
 
 ```bash
 curl -X POST http://localhost:8000/notify/critical-alerts \
@@ -678,16 +746,16 @@ curl -X POST http://localhost:8000/notify/critical-alerts \
   }'
 ```
 
-### Get Tag Details
+### Retrieve a Saved Configuration
 
 ```bash
-curl http://localhost:8000/details/critical-alerts
+curl -X POST http://localhost:8000/get/critical-alerts
 ```
 
-### Delete a URL from Tag
+### Delete a Configuration Key
 
 ```bash
-curl -X DELETE http://localhost:8000/remove/critical-alerts/discord://webhook_id/webhook_token
+curl -X POST http://localhost:8000/del/critical-alerts
 ```
 
 ### Notification Types
@@ -707,7 +775,8 @@ curl -X POST http://localhost:8000/notify \
   -d '{
     "body": "Database backup completed",
     "title": "Backup Status",
-    "type": "success"
+    "type": "success",
+    "urls": ["discord://webhook_id/webhook_token"]
   }'
 ```
 
@@ -715,29 +784,38 @@ curl -X POST http://localhost:8000/notify \
 
 ### For Raspberry Pi 5
 
-Recommended settings:
+Use a systemd drop-in so installer-generated units can be refreshed safely:
+
+```bash
+sudo systemctl edit apprise-api
+```
+
+Example drop-in:
 
 ```ini
-# Memory: 384MB for typical use
-MemoryLimit=384M
+[Service]
+MemoryMax=768M
+CPUQuota=100%
+```
 
-# CPU: 75% for balanced performance
-CPUQuota=75%
+Apply the change:
 
-# Increase request timeout
-Environment="TIMEOUT=30"
+```bash
+sudo systemctl daemon-reload
+sudo systemctl restart apprise-api
 ```
 
 ### Monitor Performance
 
 ```bash
 # Real-time stats
-watch podman stats apprise-api
+sudo podman stats apprise-api
 
 # Check container resource limits
-podman inspect apprise-api | grep -A 5 "MemoryLimit\|CpuQuota"
+sudo podman inspect apprise-api --format '{{json .HostConfig.Resources}}' | jq .
 ```
 
 ---
 
-See [README.md](README.md) for overview and [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for issues.
+See [the project overview](../README.md) and
+[TROUBLESHOOTING.md](TROUBLESHOOTING.md) for additional guidance.

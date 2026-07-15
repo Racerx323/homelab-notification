@@ -86,7 +86,9 @@ fi
 # Create backup directory if needed
 if [[ ! -d "$BACKUP_DIR" ]]; then
     log_warn "Creating backup directory: $BACKUP_DIR"
-    sudo mkdir -p "$BACKUP_DIR"
+    if ! mkdir -p "$BACKUP_DIR" 2>/dev/null; then
+        sudo install -d -m 0755 -o "$(id -u)" -g "$(id -g)" "$BACKUP_DIR"
+    fi
 fi
 
 # Verify write permissions
@@ -109,10 +111,12 @@ if [[ -n "$MAILRISE_CONFIG_FILE" ]]; then
     add_backup_path "$mailrise_example_file" BACKUP_PATHS
 fi
 
-# Create backup
-if sudo tar czf "$BACKUP_PATH" "${BACKUP_PATHS[@]}"; then
-    # Fix permissions if using sudo
-    sudo chown $USER:$USER "$BACKUP_PATH" 2>/dev/null || true
+# Create backup. Use the current user when possible and fall back to sudo only
+# when the selected rootful paths are not readable.
+if tar czf "$BACKUP_PATH" "${BACKUP_PATHS[@]}" 2>/dev/null \
+    || sudo tar czf "$BACKUP_PATH" "${BACKUP_PATHS[@]}"; then
+    # Fix permissions if the sudo fallback created the archive.
+    sudo chown "$(id -u):$(id -g)" "$BACKUP_PATH" 2>/dev/null || true
     
     # Get file size
     SIZE=$(du -h "$BACKUP_PATH" | cut -f1)

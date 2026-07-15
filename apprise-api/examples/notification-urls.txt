@@ -22,16 +22,16 @@ tgram://bot_token/chat_id
 slack://token_a/token_b/token_c
 
 ## Email (Gmail SMTP)
-# Enable "Less secure app access" in Gmail settings
-# Or use App Password if 2FA enabled
-mailsmtp://gmail_username:gmail_password@smtp.gmail.com:587/?from=gmail_username@gmail.com
+# Enable 2-Step Verification and create a Google App Password
+mailto://gmail_username:google_app_password@gmail.com
 
-## Email (Outlook/Office365)
-mailsmtp://outlook_email:outlook_password@smtp.office365.com:587/?from=outlook_email@outlook.com
+## Email (Microsoft 365 via Microsoft Graph)
+# Register an application in Microsoft Entra ID and grant mail permissions
+o365://TenantID:AccountEmail/ClientID/ClientSecret/TargetEmail
 
 ## PagerDuty
 # Replace integration_key with your actual value
-pagerduty://integration_key
+pagerduty://integration_key@api_key
 
 ## Webhook (Generic JSON)
 # Send notifications to any webhook URL
@@ -42,7 +42,7 @@ json://your-webhook-url?headers.Authorization=Bearer%20YOUR_TOKEN
 
 ## Pushbullet
 # Replace access_token with your actual value
-pushbullet://access_token
+pbul://access_token
 
 ## Gotify (Self-hosted notification server)
 # Replace server_url and app_token
@@ -50,7 +50,7 @@ gotify://server_url/app_token
 
 ## Ntfy.sh (Self-hosted or public)
 # Replace topic with your topic name
-json://ntfy.sh/your_topic
+ntfy://ntfy.sh/your_topic
 
 ## Matrix (Chat protocol)
 # Replace homeserver, room_id, and auth_token
@@ -61,5 +61,5 @@ matrix://homeserver_url/room_id?token=auth_token
 xmpp://user:password@server.com
 
 ## Multiple Services in One URL String
-# Note: When sending to a tag, use this format in POST request
+# Save multiple URLs under one Apprise API configuration key
 # urls: ["discord://webhook_id/webhook_token", "tgram://bot_token/chat_id", "slack://token_a/token_b/token_c"]
