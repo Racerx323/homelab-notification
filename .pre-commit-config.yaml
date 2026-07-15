@@ -32,11 +32,58 @@ repos:
         language: system
         types: [yaml]
 
+      - id: check-github-issue-forms
+        name: Validate GitHub issue forms
+        entry: >-
+          check-jsonschema --builtin-schema vendor.github-issue-forms
+        language: system
+        types: [yaml]
+        files: >-
+          ^\.github/ISSUE_TEMPLATE/(?!config\.ya?ml$)[^/]+\.ya?ml$
+
+      - id: check-github-issue-config
+        name: Validate GitHub issue configuration
+        entry: >-
+          check-jsonschema --builtin-schema vendor.github-issue-config
+        language: system
+        types: [yaml]
+        files: ^\.github/ISSUE_TEMPLATE/config\.ya?ml$
+
+      - id: check-compose
+        name: Validate Compose configuration
+        entry: check-jsonschema --builtin-schema vendor.compose-spec
+        language: system
+        types: [yaml]
+        files: >-
+          (?:^|/)(?:compose|docker-compose|podman-compose)\.ya?ml$
+
       - id: check-json
         name: Validate JSON with jq
         entry: jq empty
         language: system
         types: [json]
+
+      - id: trivy-apprise-image
+        name: Trivy Apprise API image scan
+        entry: >-
+          trivy image --skip-version-check --disable-telemetry
+          --ignore-unfixed --exit-code 1 --severity HIGH,CRITICAL
+          docker.io/caronc/apprise:latest
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [manual]
+
+      - id: trivy-mailrise-image
+        name: Trivy Mailrise image scan
+        entry: >-
+          trivy image --skip-version-check --disable-telemetry
+          --ignore-unfixed --exit-code 1 --severity HIGH,CRITICAL
+          docker.io/yoryan/mailrise:latest
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [manual]
 
       - id: gitleaks
         name: Gitleaks
