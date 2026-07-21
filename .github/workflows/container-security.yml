@@ -1,0 +1,40 @@
+---
+name: Container security
+
+'on':
+  schedule:
+    - cron: '41 8 * * 2'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    name: Scan ${{ matrix.name }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Apprise API
+            image: docker.io/caronc/apprise:latest
+          - name: Mailrise
+            image: docker.io/yoryan/mailrise:latest
+    steps:
+      - name: Install Trivy
+        uses: aquasecurity/setup-trivy@81e514348e19b6112ce2a7e3ecbafe19c1e1f567  # v0.3.1
+        with:
+          version: v0.72.0
+
+      - name: Scan image
+        env:
+          IMAGE: ${{ matrix.image }}
+        run: |
+          trivy image \
+            --skip-version-check \
+            --disable-telemetry \
+            --ignore-unfixed \
+            --exit-code 1 \
+            --severity HIGH,CRITICAL \
+            "${IMAGE}"
