@@ -89,6 +89,13 @@ uses `ExecStopPost` to remove that container. `--replace` provides a final
 startup recovery path if an abrupt power loss left the prior container record
 behind.
 
+The optional weekly image-check notification timer is installed separately
+from the application installer. This prevents a rootless, direct-container, or
+new systemd installation from silently acquiring recurring registry access or
+notification behavior. Follow
+[Weekly update notification timer](CONTAINER_LIFECYCLE.md#weekly-update-notification-timer)
+after the rootful Apprise API and Mailrise services are accepted.
+
 ## Installation with Mailrise
 
 Create Apprise API and Mailrise system services:
@@ -331,16 +338,10 @@ are in [ROOTLESS.md](ROOTLESS.md#backup-and-restore).
 
 ## Update an Installation
 
-The deployment uses `latest`, so review upstream release notes before updating.
-Re-run the same installer command to pull the current image and regenerate the
-service, then restart it:
-
-```bash
-sudo ./install-apprise-podman.sh --systemd
-sudo systemctl restart apprise-api
-```
-
-Include the original Mailrise options when Mailrise is installed.
+Do not rerun the installer or pull `latest` directly against an active
+production installation. Use the read-only digest comparator and controlled,
+rollback-capable procedure in the
+[production container lifecycle guide](CONTAINER_LIFECYCLE.md).
 
 ## Uninstall
 

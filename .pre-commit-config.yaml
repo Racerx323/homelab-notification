@@ -25,6 +25,22 @@ repos:
         pass_filenames: false
         files: ^apprise-api/(?:install-apprise-podman\.sh|tests/systemd-lifecycle-regression\.sh)$
 
+      - id: apprise-container-update-policy
+        name: Validate Apprise container update policy
+        entry: /bin/bash apprise-api/tests/container-update-policy.sh
+        language: system
+        pass_filenames: false
+        files: >-
+          ^apprise-api/(?:README\.md|docs/(?:CONTAINER_LIFECYCLE|INDEX|INSTALLATION)\.md|install-apprise-podman\.sh|scripts/(?:check-container-updates|update-rootful-systemd-containers)\.sh|tests/(?:container-update-policy|systemd-lifecycle-regression)\.sh)$
+
+      - id: apprise-container-update-notification-policy
+        name: Validate Apprise container update notifications
+        entry: /bin/bash apprise-api/tests/container-update-notification-policy.sh
+        language: system
+        pass_filenames: false
+        files: >-
+          ^apprise-api/(?:configs/container-update-check\.conf\.example|docs/(?:CONTAINER_LIFECYCLE|INDEX|INSTALLATION)\.md|scripts/(?:check-container-updates|notify-container-updates|update-rootful-systemd-containers)\.sh|templates/apprise-container-update-check\.(?:service|timer)|tests/container-update-notification-policy\.sh)$
+
       - id: markdownlint-cli2
         name: markdownlint-cli2
         entry: markdownlint-cli2

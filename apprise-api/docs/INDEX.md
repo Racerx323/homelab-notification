@@ -7,6 +7,8 @@ with optional rootless operation and Mailrise SMTP relay.
 
 - [Quick start](QUICK_START.md) — deploy and send a first notification
 - [Installation guide](INSTALLATION.md) — complete rootful and rootless setup
+- [Production container lifecycle](CONTAINER_LIFECYCLE.md) — compare, update,
+  schedule notifications, validate, and roll back images
 - [Project overview](../README.md) — package contents and design
 
 ## Core Documentation
@@ -109,6 +111,20 @@ sudo ./scripts/health-check.sh --mailrise
 The backup script creates a compressed archive and matching SHA-256 checksum.
 Stop managed services and verify the checksum before restoring.
 
+### Container image lifecycle
+
+```bash
+sudo ./scripts/check-container-updates.sh
+sudo ./scripts/update-rootful-systemd-containers.sh --help
+```
+
+The comparison is read-only. The updater requires exact reviewed platform
+digests and a new root-only backup path.
+
+The lifecycle guide also contains the explicit install, validation, disable,
+and evidence-retention procedure for the optional rootful weekly notification
+timer. The application installer does not enable it implicitly.
+
 ## Examples
 
 - [API examples](../examples/api-examples.json) — current request methods,
@@ -134,7 +150,7 @@ Example:
 | `POST` | `/notify/{KEY}` | Notify through a saved configuration |
 | `POST` | `/get/{KEY}` | Retrieve a saved configuration |
 | `POST` | `/del/{KEY}` | Delete a saved configuration |
-| `GET` | `/json/urls/{KEY}?privacy=1` | List URLs and tags while masking secrets |
+| `GET` | `/json/urls/{KEY}?privacy=1` | Masked URL and tag list |
 | `GET` | `/details` | List supported Apprise services |
 | `GET` | `/metrics` | Prometheus metrics |
 
@@ -171,9 +187,12 @@ apprise-api/
 ├── podman-compose.yml
 ├── configuration/
 │   └── mailrise.conf
+├── configs/
+│   └── container-update-check.conf.example
 ├── docs/
 │   ├── INDEX.md
 │   ├── QUICK_START.md
+│   ├── CONTAINER_LIFECYCLE.md
 │   ├── INSTALLATION.md
 │   ├── CONFIGURATION.md
 │   ├── ROOTLESS.md
@@ -182,10 +201,20 @@ apprise-api/
 │   ├── api-examples.json
 │   ├── notification-urls.txt
 │   └── send-notification.sh
-└── scripts/
+├── scripts/
     ├── backup-config.sh
+    ├── check-container-updates.sh
     ├── health-check.sh
-    └── logs.sh
+    ├── logs.sh
+    ├── notify-container-updates.sh
+    └── update-rootful-systemd-containers.sh
+├── templates/
+│   ├── apprise-container-update-check.service
+│   └── apprise-container-update-check.timer
+└── tests/
+    ├── container-update-notification-policy.sh
+    ├── container-update-policy.sh
+    └── systemd-lifecycle-regression.sh
 ```
 
 ## External Resources

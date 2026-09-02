@@ -56,6 +56,7 @@ check_service_generator() {
     assert_contains "$body" '--rm' "$label"
     assert_contains "$body" '--sdnotify=conmon' "$label"
     assert_contains "$body" '--replace' "$label"
+    assert_contains "$body" '--pull=never' "$label"
     assert_contains "$body" '    -d ' "$label"
     assert_contains "$body" 'ExecStop=/usr/bin/podman stop --ignore --cidfile=%t/%n.ctr-id -t 10' "$label"
     assert_contains "$body" 'ExecStopPost=/usr/bin/podman rm --ignore -f --cidfile=%t/%n.ctr-id' "$label"

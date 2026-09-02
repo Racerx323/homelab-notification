@@ -1,0 +1,23 @@
+[Unit]
+Description=Check Apprise API and Mailrise container images
+Documentation=https://github.com/Racerx323/homelab-notification
+Wants=network-online.target
+After=network-online.target apprise-api.service mailrise.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/apprise-container-update-check.conf
+ExecStart=/usr/local/libexec/apprise-api/notify-container-updates.sh
+StateDirectory=apprise-container-lifecycle
+StateDirectoryMode=0700
+UMask=0077
+TimeoutStartSec=1h
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+ProtectControlGroups=true
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6

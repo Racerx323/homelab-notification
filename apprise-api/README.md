@@ -15,6 +15,8 @@ systemd services, persistent data, hardened runtime settings, and an optional
 - Persistent `/config`, `/plugin`, and `/attach` storage
 - Read-only container root filesystem and dropped capabilities
 - Backup, health-check, logging, and notification helper scripts
+- Read-only registry comparison and digest-bound systemd updates with rollback
+- Optional weekly update warnings through a local saved Apprise configuration
 - Failure cleanup that preserves pre-existing configuration and services
 
 ## Requirements
@@ -52,7 +54,8 @@ sudo systemctl enable --now apprise-api mailrise
 
 ```bash
 sudo apt-get update
-sudo apt-get install -y podman uidmap slirp4netns fuse-overlayfs ca-certificates curl jq
+sudo apt-get install -y \
+  podman uidmap slirp4netns fuse-overlayfs ca-certificates curl jq
 
 ./install-apprise-podman.sh --rootless --systemd
 systemctl --user enable --now apprise-api
@@ -88,6 +91,12 @@ podman logs --tail 50 apprise-api
 The built-in Apprise API configuration interface is available at
 `http://localhost:8000/`. The standard container does not provide Swagger at
 `/docs` or ReDoc at `/redoc`.
+
+For production image checks, updates, rollback, and service ownership, follow
+the [container lifecycle guide](docs/CONTAINER_LIFECYCLE.md). Do not update an
+active systemd deployment by rerunning the installer or pulling `latest`.
+The same guide documents the separately installed rootful notification timer;
+the main installer never enables recurring registry checks implicitly.
 
 ## Send a Notification
 
@@ -199,9 +208,12 @@ apprise-api/
 ├── podman-compose.yml
 ├── configuration/
 │   └── mailrise.conf
+├── configs/
+│   └── container-update-check.conf.example
 ├── docs/
 │   ├── INDEX.md
 │   ├── QUICK_START.md
+│   ├── CONTAINER_LIFECYCLE.md
 │   ├── INSTALLATION.md
 │   ├── CONFIGURATION.md
 │   ├── ROOTLESS.md
@@ -210,10 +222,20 @@ apprise-api/
 │   ├── api-examples.json
 │   ├── notification-urls.txt
 │   └── send-notification.sh
-└── scripts/
+├── scripts/
     ├── backup-config.sh
+    ├── check-container-updates.sh
     ├── health-check.sh
-    └── logs.sh
+    ├── logs.sh
+    ├── notify-container-updates.sh
+    └── update-rootful-systemd-containers.sh
+├── templates/
+│   ├── apprise-container-update-check.service
+│   └── apprise-container-update-check.timer
+└── tests/
+    ├── container-update-notification-policy.sh
+    ├── container-update-policy.sh
+    └── systemd-lifecycle-regression.sh
 ```
 
 ## Documentation
@@ -224,6 +246,7 @@ apprise-api/
 - [Configuration guide](docs/CONFIGURATION.md)
 - [Rootless guide](docs/ROOTLESS.md)
 - [Troubleshooting guide](docs/TROUBLESHOOTING.md)
+- [Production container lifecycle](docs/CONTAINER_LIFECYCLE.md)
 
 ## Support
 

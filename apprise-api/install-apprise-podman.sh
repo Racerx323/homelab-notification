@@ -27,6 +27,7 @@
 #
 # Environment overrides:
 #   APPRISE_IMAGE       Container image (default: docker.io/caronc/apprise:latest)
+#   MAILRISE_IMAGE      Container image (default: docker.io/yoryan/mailrise:latest)
 #   PUID, PGID          Container user/group (rootful default: 1000:1000;
 #                       rootless default: current uid:gid)
 #   APPRISE_STATEFUL_MODE
@@ -68,7 +69,7 @@ APPRISE_INTERPRET_EMOJIS="${APPRISE_INTERPRET_EMOJIS:-yes}"
 TZ="${TZ:-}"
 APPRISE_USER="${APPRISE_USER:-}"
 MAILRISE_CONTAINER_NAME="mailrise"
-MAILRISE_IMAGE="docker.io/yoryan/mailrise:latest"
+MAILRISE_IMAGE="${MAILRISE_IMAGE:-docker.io/yoryan/mailrise:latest}"
 MAILRISE_CONFIG_FILE="/etc/mailrise.conf"
 MAILRISE_EXAMPLE_CONFIG_FILE=""
 MAILRISE_PORT="${MAILRISE_PORT:-8025}"
@@ -560,6 +561,7 @@ ExecStart=/usr/bin/podman run \\
     --rm \\
     --sdnotify=conmon \\
     --replace \\
+    --pull=never \\
     -d \\
     --name $APPRISE_CONTAINER_NAME \\
     --user $APPRISE_USER \\
@@ -666,6 +668,7 @@ ExecStart=/usr/bin/podman run \\
     --rm \\
     --sdnotify=conmon \\
     --replace \\
+    --pull=never \\
     -d \\
     --name $MAILRISE_CONTAINER_NAME \\
     -p $MAILRISE_PORT:8025 \\
@@ -716,6 +719,7 @@ run_container_direct() {
         --security-opt no-new-privileges=true \
         --cap-drop ALL \
         --tmpfs /tmp \
+        --pull=never \
         -p "$APPRISE_PORT:8000" \
         -e "APPRISE_STATEFUL_MODE=$APPRISE_STATEFUL_MODE" \
         -e "APPRISE_WORKER_COUNT=$APPRISE_WORKER_COUNT" \
@@ -745,6 +749,7 @@ run_mailrise_container_direct() {
         -p "$MAILRISE_PORT:8025" \
         -v "$MAILRISE_CONFIG_FILE:/etc/mailrise.conf:ro" \
         --network "$NOTIFY_NETWORK_NAME" \
+        --pull=never \
         --restart=always \
         --log-driver=journald \
         "$MAILRISE_IMAGE"

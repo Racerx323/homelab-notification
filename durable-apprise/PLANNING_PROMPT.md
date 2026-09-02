@@ -136,3 +136,7 @@ Stop after planning and repository-only validation. Do not implement the
 framework, send a notification, contact a production host, or change another
 repository.
 ```
+
+After the generic framework is implemented and released, use
+[CONTAINER_UPDATE_PILOT_PROMPT.md](CONTAINER_UPDATE_PILOT_PROMPT.md) to plan its
+first production pilot without weakening the generic ownership boundary.
