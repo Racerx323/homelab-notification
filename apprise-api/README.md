@@ -11,6 +11,7 @@ systemd services, persistent data, hardened runtime settings, and an optional
 - Optional `docker.io/yoryan/mailrise:latest` relay
 - Rootful and rootless Podman workflows
 - System and user systemd units
+- Reboot-safe systemd lifecycle with PID/CID tracking and explicit cleanup
 - Persistent `/config`, `/plugin`, and `/attach` storage
 - Read-only container root filesystem and dropped capabilities
 - Backup, health-check, logging, and notification helper scripts
@@ -59,7 +60,10 @@ loginctl enable-linger "$USER"
 ```
 
 The installer creates systemd units but does not enable or start them. Review
-the generated units before running the explicit `enable --now` step.
+the generated units before running the explicit `enable --now` step. Generated
+units require Podman's discovered storage mounts, use container ID files,
+track conmon readiness through systemd notifications, and explicitly remove
+containers after stopping so a stale name cannot block the next boot.
 
 ## Verify
 

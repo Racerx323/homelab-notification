@@ -82,6 +82,13 @@ sudo systemctl enable --now apprise-api
 
 The service is written to `/etc/systemd/system/apprise-api.service`.
 
+The generated unit follows Podman 4.3's systemd lifecycle pattern: it requires
+the graph and run storage paths reported by `podman info`, tracks conmon
+readiness with `Type=notify`, records the exact container in a CID file, and
+uses `ExecStopPost` to remove that container. `--replace` provides a final
+startup recovery path if an abrupt power loss left the prior container record
+behind.
+
 ## Installation with Mailrise
 
 Create Apprise API and Mailrise system services:
@@ -112,6 +119,7 @@ This installation:
   existing config must be preserved
 - Routes the generated Mailrise config through
   `apprise://apprise-api:8000/your_apprise_config_key`
+- Generates reboot-safe units with explicit CID-based stop and removal actions
 
 Mailrise uses the Apprise API container name and internal port `8000`. A custom
 Apprise host port does not change this internal URL.
@@ -220,6 +228,19 @@ systemctl --user status apprise-api
 # If Mailrise is installed
 podman logs --tail 50 mailrise
 systemctl --user status mailrise
+```
+
+After a reboot, confirm both service units are active and no exited deployment
+container is retaining either managed name:
+
+```bash
+# Rootful
+sudo systemctl is-active apprise-api mailrise
+sudo podman ps -a --filter name=apprise-api --filter name=mailrise
+
+# Rootless
+systemctl --user is-active apprise-api mailrise
+podman ps -a --filter name=apprise-api --filter name=mailrise
 ```
 
 ### Network Access

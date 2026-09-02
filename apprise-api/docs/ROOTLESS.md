@@ -93,6 +93,11 @@ loginctl enable-linger "$USER"
 loginctl show-user "$USER" -p Linger
 ```
 
+The generated user units track conmon readiness and the exact container ID,
+explicitly remove the container after stopping, and use `--replace` as
+recovery from a stale name after an unclean shutdown. The same lifecycle
+applies to Mailrise.
+
 ### Apprise API and Mailrise
 
 ```bash

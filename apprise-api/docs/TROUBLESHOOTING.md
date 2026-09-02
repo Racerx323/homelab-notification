@@ -218,6 +218,38 @@ loginctl show-user "$USER" -p Linger
 systemctl --user enable --now apprise-api
 ```
 
+### Service Fails After Reboot Because Its Container Name Exists
+
+Current installer-generated units use CID tracking, conmon readiness
+notifications, an explicit `ExecStopPost` removal, and
+`podman run --replace`. If an older unit relied only on `podman run --rm`,
+an interrupted network teardown can leave an exited container record that
+blocks the same name on the next boot.
+
+Confirm the unit failure and container state before removing anything:
+
+```bash
+sudo systemctl status apprise-api mailrise
+sudo podman ps -a --filter name=apprise-api --filter name=mailrise
+sudo journalctl -b -u apprise-api -u mailrise --no-pager
+```
+
+Remove only a confirmed exited deployment container, regenerate the units with
+the current installer, and start the affected service. This example recovers
+Mailrise:
+
+```bash
+test "\$(sudo podman inspect mailrise --format '{{.State.Status}}')" = exited
+sudo podman rm mailrise
+sudo ./install-apprise-podman.sh --systemd --mailrise --mailrise-apprise-key your_apprise_config_key
+sudo systemd-analyze verify /etc/systemd/system/apprise-api.service /etc/systemd/system/mailrise.service
+sudo systemctl reset-failed mailrise
+sudo systemctl start mailrise
+```
+
+For rootless mode, remove `sudo` from Podman and installer commands and use
+`systemctl --user` plus `systemd-analyze --user`.
+
 ## Network and API Issues
 
 ### API Cannot Be Reached Locally

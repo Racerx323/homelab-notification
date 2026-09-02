@@ -142,17 +142,15 @@ To use a different storage directory:
     sudo nano /etc/systemd/system/apprise-api.service
     ```
 
-4. Change the volume line:
+4. Change only the three volume source paths in the generated `ExecStart`.
+   Preserve the generated CID tracking, conmon notification, detached mode,
+   `ExecStop`, and `ExecStopPost` lifecycle directives:
 
     ```text
-    ExecStart=/usr/bin/podman run --rm \
-    --name apprise-api \
-    --user 1000:1000 \
-    -p 8000:8000 \
-    -v /mnt/apprise-storage/config:/config \
-    -v /mnt/apprise-storage/plugin:/plugin \
-    -v /mnt/apprise-storage/attach:/attach \
-    docker.io/caronc/apprise:latest
+    ExecStart=/usr/bin/podman run ...
+        -v /mnt/apprise-storage/config:/config ...
+        -v /mnt/apprise-storage/plugin:/plugin ...
+        -v /mnt/apprise-storage/attach:/attach ...
     ```
 
 5. Reload and restart:

@@ -95,6 +95,8 @@ APPRISE_SERVICE_BACKUP_FILE=""
 MAILRISE_SERVICE_FILE=""
 MAILRISE_SERVICE_PREEXISTED=false
 MAILRISE_SERVICE_BACKUP_FILE=""
+PODMAN_GRAPH_ROOT=""
+PODMAN_RUN_ROOT=""
 
 # Functions
 log_info() {
@@ -306,6 +308,19 @@ check_podman() {
     local podman_version
     podman_version=$(podman --version | grep -oP '(?<=version )[0-9]+\.[0-9]+\.[0-9]+')
     log_info "Podman version: $podman_version"
+}
+
+configure_podman_storage_paths() {
+    PODMAN_GRAPH_ROOT="$(podman info --format '{{.Store.GraphRoot}}')"
+    PODMAN_RUN_ROOT="$(podman info --format '{{.Store.RunRoot}}')"
+
+    if [[ -z $PODMAN_GRAPH_ROOT || -z $PODMAN_RUN_ROOT ]]; then
+        log_error "Unable to determine Podman storage paths"
+        exit 1
+    fi
+
+    log_info "Podman graph root: $PODMAN_GRAPH_ROOT"
+    log_info "Podman run root: $PODMAN_RUN_ROOT"
 }
 
 install_dependencies() {
@@ -524,16 +539,28 @@ create_systemd_service() {
 Description=Apprise API Service
 After=network-online.target
 Wants=network-online.target
+RequiresMountsFor=$PODMAN_GRAPH_ROOT $PODMAN_RUN_ROOT $APPRISE_DATA_DIR
 StartLimitIntervalSec=60
 StartLimitBurst=3
 
 [Service]
-Type=simple
+Type=notify
+NotifyAccess=all
+Environment=PODMAN_SYSTEMD_UNIT=%n
+
 Restart=always
 RestartSec=10
+TimeoutStopSec=70
 
-# Run the container with podman
-ExecStart=/usr/bin/podman run --rm \\
+# Track the exact container created by this unit and remove it after every stop.
+ExecStartPre=/bin/rm -f %t/%n.ctr-id
+ExecStart=/usr/bin/podman run \\
+    --cidfile=%t/%n.ctr-id \\
+    --cgroups=no-conmon \\
+    --rm \\
+    --sdnotify=conmon \\
+    --replace \\
+    -d \\
     --name $APPRISE_CONTAINER_NAME \\
     --user $APPRISE_USER \\
 $(if [[ $ROOTLESS_MODE == true ]]; then echo "    --userns keep-id \\"; fi)
@@ -560,7 +587,8 @@ EOF
     --log-driver journald \\
     $APPRISE_IMAGE
 
-ExecStop=/usr/bin/podman stop -t 10 $APPRISE_CONTAINER_NAME
+ExecStop=/usr/bin/podman stop --ignore --cidfile=%t/%n.ctr-id -t 10
+ExecStopPost=/usr/bin/podman rm --ignore -f --cidfile=%t/%n.ctr-id
 
 [Install]
 WantedBy=$wanted_by
@@ -617,16 +645,28 @@ create_mailrise_systemd_service() {
 Description=Mailrise SMTP notification relay
 After=network-online.target apprise-api.service
 Wants=network-online.target apprise-api.service
+RequiresMountsFor=$PODMAN_GRAPH_ROOT $PODMAN_RUN_ROOT $(dirname "$MAILRISE_CONFIG_FILE")
 StartLimitIntervalSec=60
 StartLimitBurst=3
 
 [Service]
-Type=simple
+Type=notify
+NotifyAccess=all
+Environment=PODMAN_SYSTEMD_UNIT=%n
+
 Restart=always
 RestartSec=10
+TimeoutStopSec=70
 
-# Run the container with podman
-ExecStart=/usr/bin/podman run --rm \\
+# Track the exact container created by this unit and remove it after every stop.
+ExecStartPre=/bin/rm -f %t/%n.ctr-id
+ExecStart=/usr/bin/podman run \\
+    --cidfile=%t/%n.ctr-id \\
+    --cgroups=no-conmon \\
+    --rm \\
+    --sdnotify=conmon \\
+    --replace \\
+    -d \\
     --name $MAILRISE_CONTAINER_NAME \\
     -p $MAILRISE_PORT:8025 \\
     -v $MAILRISE_CONFIG_FILE:/etc/mailrise.conf:ro \\
@@ -634,7 +674,8 @@ ExecStart=/usr/bin/podman run --rm \\
     --log-driver journald \\
     $MAILRISE_IMAGE
 
-ExecStop=/usr/bin/podman stop -t 10 $MAILRISE_CONTAINER_NAME
+ExecStop=/usr/bin/podman stop --ignore --cidfile=%t/%n.ctr-id -t 10
+ExecStopPost=/usr/bin/podman rm --ignore -f --cidfile=%t/%n.ctr-id
 
 [Install]
 WantedBy=$wanted_by
@@ -972,6 +1013,7 @@ main() {
     configure_timezone
     configure_apprise_user
     check_podman
+    configure_podman_storage_paths
 
     # Only install system dependencies if not rootless
     if [[ $ROOTLESS_MODE == false ]]; then

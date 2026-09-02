@@ -18,6 +18,13 @@ repos:
         language: system
         types: [shell]
 
+      - id: apprise-systemd-lifecycle
+        name: Validate Apprise Podman systemd lifecycle
+        entry: /bin/bash apprise-api/tests/systemd-lifecycle-regression.sh
+        language: system
+        pass_filenames: false
+        files: ^apprise-api/(?:install-apprise-podman\.sh|tests/systemd-lifecycle-regression\.sh)$
+
       - id: markdownlint-cli2
         name: markdownlint-cli2
         entry: markdownlint-cli2
