@@ -18,6 +18,15 @@
 #   --help              Show this help message
 #   --rootless          Run rootless (no sudo needed, uses ~/.apprise)
 #   --systemd           Create a systemd service (enable/start separately)
+#   --production        Fresh-host rootful systemd install of Apprise API,
+#                       Mailrise, and lifecycle artifacts; requires both digests
+#   --production-config FILE
+#                       Strict desired-state file for --production
+#   --preflight-only    Validate --production inputs and fresh-host state only
+#   --apprise-digest SHA256
+#                       Exact reviewed Apprise platform digest for --production
+#   --mailrise-digest SHA256
+#                       Exact reviewed Mailrise platform digest for --production
 #   --port PORT         Set API port (default: 8000)
 #   --mailrise          Install and configure Mailrise SMTP relay
 #   --mailrise-port PORT
@@ -46,6 +55,9 @@
 
 set -Eeuo pipefail
 
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+readonly script_dir
+
 # Color output (ANSI escape codes)
 RED=$'\033[0;31m'
 GREEN=$'\033[0;32m'
@@ -56,6 +68,8 @@ NC=$'\033[0m' # No Color
 APPRISE_PORT="${APPRISE_PORT:-8000}"
 APPRISE_CONTAINER_NAME="apprise-api"
 APPRISE_IMAGE="${APPRISE_IMAGE:-docker.io/caronc/apprise:latest}"
+APPRISE_REPOSITORY="docker.io/caronc/apprise"
+APPRISE_DIGEST=""
 APPRISE_DATA_DIR="/var/lib/apprise"
 APPRISE_CONFIG_DIR=""
 APPRISE_PLUGIN_DIR=""
@@ -70,6 +84,8 @@ TZ="${TZ:-}"
 APPRISE_USER="${APPRISE_USER:-}"
 MAILRISE_CONTAINER_NAME="mailrise"
 MAILRISE_IMAGE="${MAILRISE_IMAGE:-docker.io/yoryan/mailrise:latest}"
+MAILRISE_REPOSITORY="docker.io/yoryan/mailrise"
+MAILRISE_DIGEST=""
 MAILRISE_CONFIG_FILE="/etc/mailrise.conf"
 MAILRISE_EXAMPLE_CONFIG_FILE=""
 MAILRISE_PORT="${MAILRISE_PORT:-8025}"
@@ -79,6 +95,10 @@ NOTIFY_NETWORK_NAME="notify-network"
 ENABLE_SYSTEMD=false
 ROOTLESS_MODE=false
 ENABLE_MAILRISE=false
+PRODUCTION_MODE=false
+PRODUCTION_CONFIG_FILE=""
+PRODUCTION_PREFLIGHT_ONLY=false
+INSTALL_LIFECYCLE=false
 INSTALL_COMPLETED=false
 APPRISE_CONTAINER_CREATED=false
 MAILRISE_CONTAINER_CREATED=false
@@ -98,6 +118,9 @@ MAILRISE_SERVICE_PREEXISTED=false
 MAILRISE_SERVICE_BACKUP_FILE=""
 PODMAN_GRAPH_ROOT=""
 PODMAN_RUN_ROOT=""
+LIFECYCLE_ARTIFACTS_INSTALLED=false
+NETAVARK_LOCK_CREATED=false
+PRODUCTION_SERVICES_ACTIVATED=false
 
 # Functions
 log_info() {
@@ -159,6 +182,24 @@ cleanup_success_backups() {
     fi
 }
 
+cleanup_lifecycle_artifacts() {
+    if [[ $LIFECYCLE_ARTIFACTS_INSTALLED != true ]]; then
+        return 0
+    fi
+
+    rm -f -- \
+        /usr/local/libexec/apprise-api/check-container-updates.sh \
+        /usr/local/libexec/apprise-api/notify-container-updates.sh \
+        /usr/local/libexec/apprise-api/update-rootful-systemd-containers.sh \
+        /etc/apprise-container-update-check.conf \
+        /etc/systemd/system/apprise-container-update-check.service \
+        /etc/systemd/system/apprise-container-update-check.timer
+    rmdir /usr/local/libexec/apprise-api 2>/dev/null || true
+    if [[ $NETAVARK_LOCK_CREATED == true ]]; then
+        rm -f -- /etc/containers/networks/netavark.lock
+    fi
+}
+
 cleanup_on_exit() {
     local exit_code=$?
 
@@ -170,6 +211,10 @@ cleanup_on_exit() {
     set +e
 
     log_error "Installation failed with exit code $exit_code. Cleaning up artifacts created by this run..."
+
+    if [[ $PRODUCTION_SERVICES_ACTIVATED == true ]]; then
+        systemctl disable --now mailrise.service apprise-api.service || true
+    fi
 
     if command -v podman &>/dev/null; then
         if [[ $MAILRISE_CONTAINER_CREATED == true ]] && podman container exists "$MAILRISE_CONTAINER_NAME" 2>/dev/null; then
@@ -187,6 +232,7 @@ cleanup_on_exit() {
 
     cleanup_service_file "$MAILRISE_SERVICE_FILE" "$MAILRISE_SERVICE_PREEXISTED" "$MAILRISE_SERVICE_BACKUP_FILE" "Mailrise"
     cleanup_service_file "$APPRISE_SERVICE_FILE" "$APPRISE_SERVICE_PREEXISTED" "$APPRISE_SERVICE_BACKUP_FILE" "Apprise API"
+    cleanup_lifecycle_artifacts
     reload_systemd_after_cleanup
 
     if [[ -n "$MAILRISE_CONFIG_TARGET_FILE" && $MAILRISE_CONFIG_TARGET_PREEXISTED == false && -f "$MAILRISE_CONFIG_TARGET_FILE" ]]; then
@@ -203,7 +249,11 @@ cleanup_on_exit() {
         log_info "Removed Podman network created by this run: $NOTIFY_NETWORK_NAME"
     fi
 
-    if [[ $APPRISE_DATA_DIR_CREATED == true ]]; then
+    if [[ $PRODUCTION_MODE == true && $APPRISE_DATA_DIR_CREATED == true &&
+        $APPRISE_DATA_DIR == /var/lib/apprise ]]; then
+        rm -rf -- /var/lib/apprise
+        log_info "Removed production data directory created by this failed run"
+    elif [[ $APPRISE_DATA_DIR_CREATED == true ]]; then
         rmdir "$APPRISE_ATTACH_DIR" 2>/dev/null || true
         rmdir "$APPRISE_PLUGIN_DIR" 2>/dev/null || true
         rmdir "$APPRISE_CONFIG_DIR" 2>/dev/null || true
@@ -231,6 +281,237 @@ check_privileges() {
 
     if [[ $ROOTLESS_MODE == true && $EUID -eq 0 ]]; then
         log_error "Rootless mode cannot be used with sudo. Run as regular user."
+        exit 1
+    fi
+}
+
+validate_exact_digest() {
+    local digest_value="$1"
+    local digest_label="$2"
+
+    [[ $digest_value =~ ^sha256:[0-9a-f]{64}$ ]] || {
+        log_error "$digest_label must be sha256: followed by 64 lowercase hexadecimal characters"
+        exit 1
+    }
+}
+
+load_production_config() {
+    local config_line
+    local config_key
+    local config_value
+    local seen_apprise=false
+    local seen_mailrise=false
+    local seen_notification_key=false
+    local seen_apprise_user=false
+    local seen_timezone=false
+    local seen_mailrise_config_name=false
+
+    [[ -n $PRODUCTION_CONFIG_FILE ]] || return 0
+    [[ $PRODUCTION_MODE == true ]] || {
+        log_error "--production-config requires --production"
+        exit 1
+    }
+    [[ -f $PRODUCTION_CONFIG_FILE && ! -L $PRODUCTION_CONFIG_FILE ]] || {
+        log_error "Production config is missing or unsafe: $PRODUCTION_CONFIG_FILE"
+        exit 1
+    }
+
+    while IFS= read -r config_line || [[ -n $config_line ]]; do
+        [[ -z $config_line || $config_line == \#* ]] && continue
+        [[ $config_line == *=* ]] || {
+            log_error "Invalid production config line"
+            exit 1
+        }
+        config_key="${config_line%%=*}"
+        config_value="${config_line#*=}"
+        [[ -n $config_value && $config_value != *[[:space:]]* ]] || {
+            log_error "Invalid production config value: $config_key"
+            exit 1
+        }
+        case "$config_key" in
+            APPRISE_PLATFORM_DIGEST)
+                [[ $seen_apprise == false && -z $APPRISE_DIGEST ]] || {
+                    log_error "Duplicate Apprise production digest"
+                    exit 1
+                }
+                APPRISE_DIGEST="$config_value"
+                seen_apprise=true
+                ;;
+            MAILRISE_PLATFORM_DIGEST)
+                [[ $seen_mailrise == false && -z $MAILRISE_DIGEST ]] || {
+                    log_error "Duplicate Mailrise production digest"
+                    exit 1
+                }
+                MAILRISE_DIGEST="$config_value"
+                seen_mailrise=true
+                ;;
+            MAILRISE_APPRISE_CONFIG_KEY)
+                [[ $seen_notification_key == false &&
+                    $MAILRISE_APPRISE_CONFIG_KEY == your_apprise_config_key ]] || {
+                    log_error "Duplicate Mailrise Apprise configuration key"
+                    exit 1
+                }
+                MAILRISE_APPRISE_CONFIG_KEY="$config_value"
+                seen_notification_key=true
+                ;;
+            APPRISE_USER)
+                [[ $seen_apprise_user == false && -z $APPRISE_USER ]] || {
+                    log_error "Duplicate Apprise production user"
+                    exit 1
+                }
+                APPRISE_USER="$config_value"
+                seen_apprise_user=true
+                ;;
+            TZ)
+                [[ $seen_timezone == false && -z $TZ ]] || {
+                    log_error "Duplicate production timezone"
+                    exit 1
+                }
+                TZ="$config_value"
+                seen_timezone=true
+                ;;
+            MAILRISE_CONFIG_NAME)
+                [[ $seen_mailrise_config_name == false &&
+                    $MAILRISE_CONFIG_NAME == notify ]] || {
+                    log_error "Duplicate Mailrise production configuration name"
+                    exit 1
+                }
+                MAILRISE_CONFIG_NAME="$config_value"
+                seen_mailrise_config_name=true
+                ;;
+            *)
+                log_error "Unsupported production config key: $config_key"
+                exit 1
+                ;;
+        esac
+    done <"$PRODUCTION_CONFIG_FILE"
+}
+
+configure_production_mode() {
+    if [[ $PRODUCTION_MODE != true ]]; then
+        if [[ -n $APPRISE_DIGEST || -n $MAILRISE_DIGEST ||
+            $PRODUCTION_PREFLIGHT_ONLY == true ]]; then
+            log_error "production digest and preflight options require --production"
+            exit 1
+        fi
+        return 0
+    fi
+
+    if [[ $ROOTLESS_MODE == true ]]; then
+        log_error "--production supports only the rootful systemd deployment"
+        exit 1
+    fi
+
+    ENABLE_SYSTEMD=true
+    ENABLE_MAILRISE=true
+    INSTALL_LIFECYCLE=true
+    validate_exact_digest "$APPRISE_DIGEST" "--apprise-digest"
+    validate_exact_digest "$MAILRISE_DIGEST" "--mailrise-digest"
+
+    [[ $APPRISE_IMAGE == docker.io/caronc/apprise:latest ]] || {
+        log_error "--production requires APPRISE_IMAGE=docker.io/caronc/apprise:latest"
+        exit 1
+    }
+    [[ $MAILRISE_IMAGE == docker.io/yoryan/mailrise:latest ]] || {
+        log_error "--production requires MAILRISE_IMAGE=docker.io/yoryan/mailrise:latest"
+        exit 1
+    }
+    [[ $APPRISE_PORT == 8000 && $MAILRISE_PORT == 8025 ]] || {
+        log_error "--production requires the lifecycle-managed host ports 8000 and 8025"
+        exit 1
+    }
+    [[ $APPRISE_STATEFUL_MODE == simple && $APPRISE_WORKER_COUNT == 1 ]] || {
+        log_error "--production requires APPRISE_STATEFUL_MODE=simple and APPRISE_WORKER_COUNT=1"
+        exit 1
+    }
+    [[ $APPRISE_ADMIN == y && $APPRISE_STORAGE_DIR == /config ]] || {
+        log_error "--production requires APPRISE_ADMIN=y and APPRISE_STORAGE_DIR=/config"
+        exit 1
+    }
+    [[ $APPRISE_STORAGE_MODE == auto && $APPRISE_INTERPRET_EMOJIS == yes ]] || {
+        log_error "--production requires APPRISE_STORAGE_MODE=auto and APPRISE_INTERPRET_EMOJIS=yes"
+        exit 1
+    }
+    [[ $MAILRISE_CONFIG_NAME =~ ^[A-Za-z0-9_-]+$ ]] || {
+        log_error "--production requires a simple Mailrise configuration name"
+        exit 1
+    }
+    [[ $MAILRISE_APPRISE_CONFIG_KEY =~ ^[A-Za-z0-9_-]+$ &&
+        $MAILRISE_APPRISE_CONFIG_KEY != your_apprise_config_key ]] || {
+        log_error "--production requires a non-placeholder --mailrise-apprise-key"
+        exit 1
+    }
+    [[ -n $APPRISE_USER ]] || {
+        log_error "--production requires an explicit APPRISE_USER in the production config or environment"
+        exit 1
+    }
+    [[ -n $TZ ]] || {
+        log_error "--production requires an explicit TZ in the production config or environment"
+        exit 1
+    }
+}
+
+validate_lifecycle_sources() {
+    local lifecycle_source
+
+    for lifecycle_source in \
+        "$script_dir/scripts/check-container-updates.sh" \
+        "$script_dir/scripts/notify-container-updates.sh" \
+        "$script_dir/scripts/update-rootful-systemd-containers.sh" \
+        "$script_dir/configs/container-update-check.conf.example" \
+        "$script_dir/templates/apprise-container-update-check.service" \
+        "$script_dir/templates/apprise-container-update-check.timer"; do
+        [[ -f $lifecycle_source && ! -L $lifecycle_source ]] || {
+            log_error "Missing or unsafe lifecycle source: $lifecycle_source"
+            exit 1
+        }
+    done
+}
+
+validate_production_runtime_values() {
+    [[ $PRODUCTION_MODE == true ]] || return 0
+
+    [[ $APPRISE_USER =~ ^[0-9]+:[0-9]+$ ]] || {
+        log_error "--production requires APPRISE_USER as numeric UID:GID"
+        exit 1
+    }
+    [[ $TZ =~ ^[A-Za-z0-9_+./-]+$ && $TZ != *..* ]] || {
+        log_error "--production resolved an unsafe timezone value"
+        exit 1
+    }
+}
+
+require_fresh_production_host() {
+    local production_target
+
+    [[ $PRODUCTION_MODE == true ]] || return 0
+
+    for production_target in \
+        /var/lib/apprise \
+        /etc/mailrise.conf \
+        /etc/mailrise.conf.example \
+        /etc/systemd/system/apprise-api.service \
+        /etc/systemd/system/mailrise.service \
+        /etc/systemd/system/apprise-container-update-check.service \
+        /etc/systemd/system/apprise-container-update-check.timer \
+        /etc/apprise-container-update-check.conf \
+        /usr/local/libexec/apprise-api/check-container-updates.sh \
+        /usr/local/libexec/apprise-api/notify-container-updates.sh \
+        /usr/local/libexec/apprise-api/update-rootful-systemd-containers.sh; do
+        [[ ! -e $production_target && ! -L $production_target ]] || {
+            log_error "--production is fresh-host-only; target already exists: $production_target"
+            exit 1
+        }
+    done
+
+    for production_target in "$APPRISE_CONTAINER_NAME" "$MAILRISE_CONTAINER_NAME"; do
+        if podman container exists "$production_target" 2>/dev/null; then
+            log_error "--production is fresh-host-only; container already exists: $production_target"
+            exit 1
+        fi
+    done
+    if podman network exists "$NOTIFY_NETWORK_NAME" 2>/dev/null; then
+        log_error "--production is fresh-host-only; network already exists: $NOTIFY_NETWORK_NAME"
         exit 1
     fi
 }
@@ -435,12 +716,35 @@ create_notify_network() {
     NOTIFY_NETWORK_CREATED=true
 }
 
+pull_production_image() {
+    local image_tag="$1"
+    local image_repository="$2"
+    local image_digest="$3"
+    local image_label="$4"
+    local image_reference="$image_repository@$image_digest"
+    local host_architecture
+    local image_architecture
+
+    podman pull "$image_reference" || return 1
+    host_architecture="$(podman info --format '{{.Host.Arch}}')"
+    image_architecture="$(podman image inspect "$image_reference" --format '{{.Architecture}}')"
+    [[ $image_architecture == "$host_architecture" ]] || {
+        log_error "$image_label architecture $image_architecture does not match host $host_architecture"
+        return 1
+    }
+    podman tag "$image_reference" "$image_tag"
+    [[ $(podman image inspect "$image_reference" --format '{{.Id}}') == "$(podman image inspect "$image_tag" --format '{{.Id}}')" ]]
+}
+
 pull_apprise_image() {
     log_info "Pulling official Apprise API Docker image from Docker Hub..."
     log_info "Image: $APPRISE_IMAGE"
 
     # Pull the official caronc/apprise image (unauthenticated)
-    if podman pull "$APPRISE_IMAGE"; then
+    if [[ $PRODUCTION_MODE == true ]]; then
+        pull_production_image "$APPRISE_IMAGE" "$APPRISE_REPOSITORY" \
+            "$APPRISE_DIGEST" "Apprise API"
+    elif podman pull "$APPRISE_IMAGE"; then
         log_info "Successfully pulled: $APPRISE_IMAGE"
         return 0
     else
@@ -448,14 +752,19 @@ pull_apprise_image() {
         log_info "Try manual pull for diagnostics:"
         log_info "  podman pull $APPRISE_IMAGE"
         return 1
-    fi
+    fi || return 1
+
+    log_info "Successfully pinned $APPRISE_IMAGE to $APPRISE_DIGEST"
 }
 
 pull_mailrise_image() {
     log_info "Pulling Mailrise Docker image from Docker Hub..."
     log_info "Image: $MAILRISE_IMAGE"
 
-    if podman pull "$MAILRISE_IMAGE"; then
+    if [[ $PRODUCTION_MODE == true ]]; then
+        pull_production_image "$MAILRISE_IMAGE" "$MAILRISE_REPOSITORY" \
+            "$MAILRISE_DIGEST" "Mailrise"
+    elif podman pull "$MAILRISE_IMAGE"; then
         log_info "Successfully pulled: $MAILRISE_IMAGE"
         return 0
     else
@@ -463,7 +772,9 @@ pull_mailrise_image() {
         log_info "Try manual pull for diagnostics:"
         log_info "  podman pull $MAILRISE_IMAGE"
         return 1
-    fi
+    fi || return 1
+
+    log_info "Successfully pinned $MAILRISE_IMAGE to $MAILRISE_DIGEST"
 }
 
 build_apprise_image_locally() {
@@ -698,6 +1009,126 @@ EOF
     log_info "Start with: $start_cmd"
 }
 
+install_lifecycle_artifacts() {
+    [[ $INSTALL_LIFECYCLE == true ]] || return 0
+    validate_lifecycle_sources
+
+    LIFECYCLE_ARTIFACTS_INSTALLED=true
+    install -d -o root -g root -m 0755 /usr/local/libexec/apprise-api
+    install -o root -g root -m 0755 \
+        "$script_dir/scripts/check-container-updates.sh" \
+        "$script_dir/scripts/notify-container-updates.sh" \
+        "$script_dir/scripts/update-rootful-systemd-containers.sh" \
+        /usr/local/libexec/apprise-api/
+    awk -v config_key="$MAILRISE_APPRISE_CONFIG_KEY" '
+        /^APPRISE_CONFIG_KEY=/ { print "APPRISE_CONFIG_KEY=" config_key; next }
+        { print }
+    ' "$script_dir/configs/container-update-check.conf.example" \
+        >/etc/apprise-container-update-check.conf
+    chown root:root /etc/apprise-container-update-check.conf
+    chmod 0600 /etc/apprise-container-update-check.conf
+    install -o root -g root -m 0644 \
+        "$script_dir/templates/apprise-container-update-check.service" \
+        "$script_dir/templates/apprise-container-update-check.timer" \
+        /etc/systemd/system/
+    install -d -o root -g root -m 0755 /etc/containers/networks
+    if [[ ! -e /etc/containers/networks/netavark.lock ]]; then
+        install -o root -g root -m 0644 /dev/null /etc/containers/networks/netavark.lock
+        NETAVARK_LOCK_CREATED=true
+    elif [[ -L /etc/containers/networks/netavark.lock ||
+        ! -f /etc/containers/networks/netavark.lock ]]; then
+        log_error "Unsafe Podman netavark lock path"
+        exit 1
+    fi
+
+    systemd-analyze verify \
+        /etc/systemd/system/apprise-api.service \
+        /etc/systemd/system/mailrise.service \
+        /etc/systemd/system/apprise-container-update-check.service \
+        /etc/systemd/system/apprise-container-update-check.timer
+    systemctl daemon-reload
+    log_info "Installed lifecycle helpers and inactive weekly update-check timer"
+}
+
+wait_for_production_services() {
+    local health_attempt
+
+    for ((health_attempt = 1; health_attempt <= 30; health_attempt++)); do
+        if systemctl is-active --quiet apprise-api.service mailrise.service &&
+            [[ $(podman container inspect "$APPRISE_CONTAINER_NAME" --format '{{.State.Status}}' 2>/dev/null) == running ]] &&
+            [[ $(podman container inspect "$MAILRISE_CONTAINER_NAME" --format '{{.State.Status}}' 2>/dev/null) == running ]] &&
+            curl --silent --show-error --fail --max-time 5 \
+                "http://127.0.0.1:$APPRISE_PORT/status" >/dev/null 2>&1 &&
+            [[ -n $(podman port "$MAILRISE_CONTAINER_NAME" 8025/tcp 2>/dev/null) ]]; then
+            return 0
+        fi
+        sleep 1
+    done
+    return 1
+}
+
+verify_production_acceptance() {
+    local actual_image_id
+    local expected_environment
+    local expected_image_id
+
+    systemctl is-enabled --quiet apprise-api.service
+    systemctl is-enabled --quiet mailrise.service
+    if systemctl is-enabled --quiet apprise-container-update-check.timer; then
+        log_error "Production update-check timer was enabled without authorization"
+        return 1
+    fi
+
+    expected_image_id="$(podman image inspect "$APPRISE_IMAGE" --format '{{.Id}}')"
+    actual_image_id="$(podman container inspect "$APPRISE_CONTAINER_NAME" --format '{{.Image}}')"
+    [[ $actual_image_id == "$expected_image_id" ]] || {
+        log_error "Running Apprise API image does not match the reviewed local tag"
+        return 1
+    }
+    expected_image_id="$(podman image inspect "$MAILRISE_IMAGE" --format '{{.Id}}')"
+    actual_image_id="$(podman container inspect "$MAILRISE_CONTAINER_NAME" --format '{{.Image}}')"
+    [[ $actual_image_id == "$expected_image_id" ]] || {
+        log_error "Running Mailrise image does not match the reviewed local tag"
+        return 1
+    }
+
+    [[ $(podman container inspect "$APPRISE_CONTAINER_NAME" --format '{{.Config.User}}') == "$APPRISE_USER" ]] || {
+        log_error "Running Apprise API user does not match production desired state"
+        return 1
+    }
+    for expected_environment in \
+        "APPRISE_STATEFUL_MODE=$APPRISE_STATEFUL_MODE" \
+        "APPRISE_WORKER_COUNT=$APPRISE_WORKER_COUNT" \
+        "APPRISE_ADMIN=$APPRISE_ADMIN" \
+        "APPRISE_STORAGE_DIR=$APPRISE_STORAGE_DIR" \
+        "APPRISE_STORAGE_MODE=$APPRISE_STORAGE_MODE" \
+        "APPRISE_INTERPRET_EMOJIS=$APPRISE_INTERPRET_EMOJIS" \
+        "TZ=$TZ"; do
+        podman container inspect "$APPRISE_CONTAINER_NAME" |
+            jq -e --arg expected "$expected_environment" \
+                '.[0].Config.Env | index($expected) != null' >/dev/null || {
+            log_error "Running Apprise API environment is missing: $expected_environment"
+            return 1
+        }
+    done
+}
+
+activate_production_services() {
+    [[ $PRODUCTION_MODE == true ]] || return 0
+
+    PRODUCTION_SERVICES_ACTIVATED=true
+    systemctl enable apprise-api.service mailrise.service
+    systemctl start apprise-api.service
+    systemctl start mailrise.service
+    wait_for_production_services || {
+        log_error "Production service acceptance failed"
+        exit 1
+    }
+    verify_production_acceptance || exit 1
+    log_info "Production application services are enabled and healthy"
+    log_info "The update-check timer is installed but remains disabled"
+}
+
 run_container_direct() {
     local network_args=()
     local userns_args=()
@@ -795,6 +1226,41 @@ verify_installation() {
     fi
 }
 
+show_direct_container_commands() {
+    local command_prefix=''
+
+    if [[ $ROOTLESS_MODE == false ]]; then
+        command_prefix='sudo '
+    fi
+
+    cat <<EOF
+View logs:
+  ${command_prefix}podman logs -f $APPRISE_CONTAINER_NAME
+
+Stop container:
+  ${command_prefix}podman stop $APPRISE_CONTAINER_NAME
+
+Start container:
+  ${command_prefix}podman start $APPRISE_CONTAINER_NAME
+
+Remove container:
+  ${command_prefix}podman rm -f $APPRISE_CONTAINER_NAME
+$(if [[ $ENABLE_MAILRISE == true ]]; then
+        cat <<MAILRISE_COMMANDS
+
+View Mailrise logs:
+  ${command_prefix}podman logs -f $MAILRISE_CONTAINER_NAME
+
+Stop Mailrise:
+  ${command_prefix}podman stop $MAILRISE_CONTAINER_NAME
+
+Start Mailrise:
+  ${command_prefix}podman start $MAILRISE_CONTAINER_NAME
+MAILRISE_COMMANDS
+    fi)
+EOF
+}
+
 show_info() {
     cat <<EOF
 
@@ -814,6 +1280,15 @@ Storage Mode:       $APPRISE_STORAGE_MODE
 Interpret Emojis:   $APPRISE_INTERPRET_EMOJIS
 Mode:               $(if [[ $ROOTLESS_MODE == true ]]; then echo "Rootless (user)"; else echo "Rootful (system)"; fi)
 Mailrise:           $(if [[ $ENABLE_MAILRISE == true ]]; then echo "Enabled"; else echo "Disabled"; fi)
+$(if [[ $PRODUCTION_MODE == true ]]; then
+        cat <<PRODUCTION_SUMMARY
+Production Profile: Enabled
+Apprise Digest:     $APPRISE_DIGEST
+Mailrise Digest:    $MAILRISE_DIGEST
+Lifecycle Helpers:  /usr/local/libexec/apprise-api
+Update Timer:       Installed, disabled
+PRODUCTION_SUMMARY
+    fi)
 $(if [[ $ENABLE_MAILRISE == true ]]; then
         cat <<MAILRISE_SUMMARY
 Mailrise Image:     $MAILRISE_IMAGE
@@ -828,30 +1303,22 @@ MAILRISE_SUMMARY
 
 ${GREEN}Useful Commands:${NC}
 
+$(if [[ $ENABLE_SYSTEMD == true ]]; then
+        if [[ $ROOTLESS_MODE == true ]]; then
+            cat <<SYSTEMD_LOGS
 View logs:
-  podman logs -f $APPRISE_CONTAINER_NAME
-
-Stop container:
-  podman stop $APPRISE_CONTAINER_NAME
-
-Start container:
-  podman start $APPRISE_CONTAINER_NAME
-
-Remove container:
-  podman rm -f $APPRISE_CONTAINER_NAME
-
-$(if [[ $ENABLE_MAILRISE == true ]]; then
-        cat <<MAILRISE_COMMANDS
-View Mailrise logs:
-  podman logs -f $MAILRISE_CONTAINER_NAME
-
-Stop Mailrise:
-  podman stop $MAILRISE_CONTAINER_NAME
-
-Start Mailrise:
-  podman start $MAILRISE_CONTAINER_NAME
-
-MAILRISE_COMMANDS
+  journalctl --user -u apprise-api -f
+$(if [[ $ENABLE_MAILRISE == true ]]; then echo "  journalctl --user -u mailrise -f"; fi)
+SYSTEMD_LOGS
+        else
+            cat <<SYSTEMD_LOGS
+View logs:
+  sudo journalctl -u apprise-api -f
+$(if [[ $ENABLE_MAILRISE == true ]]; then echo "  sudo journalctl -u mailrise -f"; fi)
+SYSTEMD_LOGS
+        fi
+    else
+        show_direct_container_commands
     fi)
 
 Access API:
@@ -904,34 +1371,36 @@ ROOTLESS_SYSTEMD
         fi)
 ROOTLESS
     else
-        cat <<ROOTFUL
-${GREEN}Systemd Management (if enabled):${NC}
+        if [[ $ENABLE_SYSTEMD == true ]]; then
+            cat <<ROOTFUL
+${GREEN}Systemd Management:${NC}
 
 Enable auto-start:
-  systemctl enable apprise-api
+  sudo systemctl enable apprise-api
 
 Start service:
-  systemctl start apprise-api
+  sudo systemctl start apprise-api
 
 Stop service:
-  systemctl stop apprise-api
+  sudo systemctl stop apprise-api
 
 View service logs:
-  journalctl -u apprise-api -f
+  sudo journalctl -u apprise-api -f
 $(if [[ $ENABLE_MAILRISE == true ]]; then
-            cat <<ROOTFUL_MAILRISE_SYSTEMD
+                cat <<ROOTFUL_MAILRISE_SYSTEMD
 
 Enable Mailrise auto-start:
-  systemctl enable mailrise
+  sudo systemctl enable mailrise
 
 Start Mailrise service:
-  systemctl start mailrise
+  sudo systemctl start mailrise
 
 View Mailrise service logs:
-  journalctl -u mailrise -f
+  sudo journalctl -u mailrise -f
 ROOTFUL_MAILRISE_SYSTEMD
-        fi)
+            fi)
 ROOTFUL
+        fi
     fi)
 
 ${GREEN}========================================================${NC}
@@ -953,6 +1422,38 @@ while [[ $# -gt 0 ]]; do
         --systemd)
             ENABLE_SYSTEMD=true
             shift
+            ;;
+        --production)
+            PRODUCTION_MODE=true
+            shift
+            ;;
+        --production-config)
+            if [[ $# -lt 2 || -z $2 ]]; then
+                log_error "--production-config requires a file"
+                exit 1
+            fi
+            PRODUCTION_CONFIG_FILE="$2"
+            shift 2
+            ;;
+        --preflight-only)
+            PRODUCTION_PREFLIGHT_ONLY=true
+            shift
+            ;;
+        --apprise-digest)
+            if [[ $# -lt 2 || -z $2 ]]; then
+                log_error "--apprise-digest requires a digest"
+                exit 1
+            fi
+            APPRISE_DIGEST="$2"
+            shift 2
+            ;;
+        --mailrise-digest)
+            if [[ $# -lt 2 || -z $2 ]]; then
+                log_error "--mailrise-digest requires a digest"
+                exit 1
+            fi
+            MAILRISE_DIGEST="$2"
+            shift 2
             ;;
         --port)
             if [[ $# -lt 2 ]]; then
@@ -1002,6 +1503,8 @@ trap cleanup_on_exit EXIT
 
 # Main execution
 main() {
+    load_production_config
+    configure_production_mode
     if [[ $ROOTLESS_MODE == true ]]; then
         log_info "Starting Apprise API installation in ROOTLESS mode"
         log_info "Data directory: $HOME/.apprise"
@@ -1017,8 +1520,16 @@ main() {
     check_privileges
     configure_timezone
     configure_apprise_user
-    check_podman
-    configure_podman_storage_paths
+    validate_production_runtime_values
+    require_fresh_production_host
+    if [[ $PRODUCTION_MODE == true ]]; then
+        validate_lifecycle_sources
+        if [[ $PRODUCTION_PREFLIGHT_ONLY == true ]]; then
+            printf 'PREFLIGHT_OK: production_config=%s apprise_digest=%s mailrise_digest=%s timer=disabled\n' \
+                "${PRODUCTION_CONFIG_FILE:-command-line}" "$APPRISE_DIGEST" "$MAILRISE_DIGEST"
+            return 0
+        fi
+    fi
 
     # Only install system dependencies if not rootless
     if [[ $ROOTLESS_MODE == false ]]; then
@@ -1027,6 +1538,9 @@ main() {
         log_info "Rootless mode: skipping system dependency installation"
         log_info "Ensure podman and ca-certificates are installed"
     fi
+    check_podman
+    configure_podman_storage_paths
+    require_fresh_production_host
 
     setup_apprise_directory
     if [[ $ENABLE_MAILRISE == true ]]; then
@@ -1060,8 +1574,13 @@ main() {
         if [[ $ENABLE_MAILRISE == true ]]; then
             create_mailrise_systemd_service
         fi
+        install_lifecycle_artifacts
+        activate_production_services
         log_info "Systemd service created. Enable and start with:"
-        if [[ $ROOTLESS_MODE == true ]]; then
+        if [[ $PRODUCTION_MODE == true ]]; then
+            log_info "  application services already enabled and started"
+            log_info "  review, then separately enable apprise-container-update-check.timer"
+        elif [[ $ROOTLESS_MODE == true ]]; then
             log_info "  systemctl --user enable apprise-api"
             log_info "  systemctl --user start apprise-api"
             if [[ $ENABLE_MAILRISE == true ]]; then

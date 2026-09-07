@@ -17,28 +17,28 @@ Complete reference for configuring Apprise API after installation.
 
 ### Setting Environment Variables
 
-#### For Systemd Service
+#### For a New Flexible Systemd Installation
 
-Edit `/etc/systemd/system/apprise-api.service`:
-
-```bash
-sudo nano /etc/systemd/system/apprise-api.service
-```
-
-Add environment variables in the `[Service]` section:
-
-```ini
-[Service]
-Environment="APPRISE_STORAGE_DIR=/config"
-Environment="APPRISE_STORAGE_MODE=auto"
-```
-
-Then reload and restart:
+The generated unit passes these settings to Podman as explicit `-e` arguments.
+Set them in the environment that generates a new flexible-mode unit:
 
 ```bash
-sudo systemctl daemon-reload
-sudo systemctl restart apprise-api
+sudo APPRISE_STORAGE_DIR=/config APPRISE_STORAGE_MODE=auto \
+  ./install-apprise-podman.sh --systemd
+sudo systemd-analyze verify /etc/systemd/system/apprise-api.service
+sudo systemctl enable --now apprise-api
 ```
+
+Adding only a systemd `Environment=` drop-in does not override a literal value
+already embedded in `ExecStart`. Do not rerun the installer against an active
+systemd deployment: it directly reconciles containers while generating the
+unit. Change an accepted deployment through a reviewed unit replacement or
+migration that preserves CID tracking, `ExecStop`, and `ExecStopPost`.
+
+The production profile fixes its supported runtime values. Its controlled
+container updater changes image identity only; it does not change application
+configuration or regenerate units. Extend the repository desired-state
+contract and plan a separate migration if production needs another value.
 
 #### For Direct Podman Run
 
@@ -58,7 +58,7 @@ sudo podman run -d \
 
 | Variable | Default | Description |
 | ---------- | --------- | ------------- |
-| `APPRISE_IMAGE` | `docker.io/caronc/apprise:latest` | Apprise API image |
+| `APPRISE_IMAGE` | `docker.io/caronc/apprise:latest` | Flexible-mode image tag |
 | `APPRISE_STORAGE_DIR` | `/config` | Storage directory inside the container |
 | `APPRISE_STORAGE_MODE` | `auto` | Apprise storage mode |
 | `APPRISE_STATEFUL_MODE` | `simple` | Stateful mode |
@@ -68,6 +68,45 @@ sudo podman run -d \
 | `PUID`, `PGID` | `1000`, `1000` rootful | Container user/group |
 | `APPRISE_USER` | derived | Override container user as `uid:gid` |
 | `TZ` | OS timezone | Container timezone |
+
+### Reproducible Production Inputs
+
+Production image identity is supplied with the installer options
+`--apprise-digest` and `--mailrise-digest`, not with an image-tag environment
+override. Both values must be exact reviewed platform digests in
+`sha256:HEX` form. Production mode deliberately requires the canonical local
+tags because the comparator and rollback-capable updater manage those tags.
+
+J1-SVMF stores these inputs in the reviewed non-secret
+[`svmf-production.env`](../configs/svmf-production.env) file and passes it with
+`--production-config`. The installer parses a six-key allowlist and never
+sources the file as shell code. Keep notification URLs and credentials out of
+this file.
+
+The same file records the environment-specific container UID/GID, timezone,
+and Mailrise account name. This prevents a fresh installation from silently
+inheriting different values from another host. The reviewed J1-SVMF values are
+`1000:1000`, `America/Chicago`, and `notify`.
+
+Production mode also fixes the lifecycle-coupled ports and runtime policy:
+
+- Apprise API host port `8000`
+- Mailrise host port `8025`
+- Apprise stateful mode `simple`, one worker, admin enabled
+- `/config` storage with `auto` mode and emoji interpretation enabled
+- numeric `APPRISE_USER` in `UID:GID` form
+- a non-placeholder Mailrise Apprise configuration key
+
+Production mode uses that configuration key for both the generated Mailrise
+route and `/etc/apprise-container-update-check.conf`, keeping both notification
+producers aligned with the same saved Apprise configuration.
+
+The saved configuration's notification URLs remain protected runtime data in
+`/var/lib/apprise`; they are restored from backup or created through the API.
+They do not belong in `svmf-production.env` or any repository example.
+
+Use the flexible rootful or rootless installer modes for deliberate deviations.
+Those modes are not the reproducible J1-SVMF production profile.
 
 ## Persistent Data Storage
 
@@ -129,10 +168,11 @@ To use a different storage directory:
     sudo chmod 755 /mnt/apprise-storage /mnt/apprise-storage/{config,plugin,attach}
     ```
 
-2. Migrate data:
+2. Stop the systemd-managed services, then migrate data:
 
     ```text
-    sudo cp -r /var/lib/apprise/* /mnt/apprise-storage/
+    sudo systemctl stop mailrise apprise-api
+    sudo cp -a /var/lib/apprise/. /mnt/apprise-storage/
     sudo chown -R 1000:1000 /mnt/apprise-storage
     ```
 
@@ -153,12 +193,17 @@ To use a different storage directory:
         -v /mnt/apprise-storage/attach:/attach ...
     ```
 
-5. Reload and restart:
+5. Reload, validate, and start:
 
     ```text
     sudo systemctl daemon-reload
-    sudo systemctl restart apprise-api
+    sudo systemd-analyze verify /etc/systemd/system/apprise-api.service
+    sudo systemctl start apprise-api mailrise
     ```
+
+   Omit Mailrise when it is not installed. This manual path is not represented
+   by `svmf-production.env`; add storage-path support to the desired-state
+   contract before using it for reproducible production.
 
 ## Network Configuration
 
@@ -217,8 +262,8 @@ sudo firewall-cmd --list-all
 
 ### Port Configuration
 
-Regenerate the service with the desired host port so all installer-managed
-runtime options remain intact:
+For a new, unaccepted flexible installation, generate the service with the
+desired host port so all installer-managed runtime options remain intact:
 
 ```bash
 sudo ./install-apprise-podman.sh --systemd --port 9000
@@ -227,6 +272,9 @@ curl http://localhost:9000/status
 ```
 
 Include the original Mailrise options when Mailrise is installed.
+Do not use this regeneration workflow against any active systemd deployment.
+Production mode requires ports `8000` and `8025`; a port change requires a
+separately reviewed configuration migration, not the image updater.
 
 ### Shared Podman Network for Mailrise
 
@@ -276,6 +324,11 @@ configs:
     urls:
       - apprise://apprise-api:8000/your_apprise_config_key
 ```
+
+The repository's [Mailrise configuration example](../configs/mailrise.conf.example)
+shows the same starter structure. It is reference input for review and is not
+read by the installer; the installer generates the deployed file from its
+arguments while preserving any existing configuration.
 
 Send email to `notify@mailrise.xyz` to use this config. You can edit the config name or add more configs later:
 
@@ -559,37 +612,37 @@ journalctl --user -u mailrise -f
 
 ### Enable Debug Logging
 
-```bash
-# Edit systemd service
-sudo nano /etc/systemd/system/apprise-api.service
-
-# Add to [Service] section:
-# Environment="APPRISE_DEBUG=1"
-
-# Reload and restart
-sudo systemctl daemon-reload
-sudo systemctl restart apprise-api
-
-# View debug logs
-sudo journalctl -u apprise-api -f
-```
+The installer does not currently pass `APPRISE_DEBUG` into the container.
+Adding only `Environment="APPRISE_DEBUG=1"` to the systemd service therefore
+does not enable container debug logging. Add the setting to the installer and
+its desired-state tests first, then use a reviewed configuration migration for
+an existing deployment. The image-only updater is not a configuration tool.
 
 ### Memory and CPU Limits
 
-Limit resource usage in systemd:
+Limit resource usage with a systemd drop-in, which does not replace the
+generated container lifecycle:
 
 ```bash
-sudo nano /etc/systemd/system/apprise-api.service
+sudo systemctl edit apprise-api
 ```
 
 Add to `[Service]` section:
 
 ```text
 # Memory limit: 512MB
-MemoryLimit=512M
+MemoryMax=512M
 
 # CPU quota: 50% of one core
 CPUQuota=50%
+```
+
+Then validate and restart:
+
+```bash
+sudo systemd-analyze verify /etc/systemd/system/apprise-api.service
+sudo systemctl daemon-reload
+sudo systemctl restart apprise-api
 ```
 
 Reload and restart:

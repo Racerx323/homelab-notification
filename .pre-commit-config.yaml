@@ -23,7 +23,7 @@ repos:
         entry: /bin/bash apprise-api/tests/systemd-lifecycle-regression.sh
         language: system
         pass_filenames: false
-        files: ^apprise-api/(?:install-apprise-podman\.sh|tests/systemd-lifecycle-regression\.sh)$
+        files: ^apprise-api/(?:configs/svmf-production\.env|install-apprise-podman\.sh|tests/systemd-lifecycle-regression\.sh)$
 
       - id: apprise-container-update-policy
         name: Validate Apprise container update policy
@@ -31,7 +31,7 @@ repos:
         language: system
         pass_filenames: false
         files: >-
-          ^apprise-api/(?:README\.md|docs/(?:CONTAINER_LIFECYCLE|INDEX|INSTALLATION)\.md|install-apprise-podman\.sh|scripts/(?:check-container-updates|update-rootful-systemd-containers)\.sh|tests/(?:container-update-policy|systemd-lifecycle-regression)\.sh)$
+          ^apprise-api/(?:README\.md|configs/(?:container-update-check\.conf\.example|mailrise\.conf\.example|svmf-production\.env)|docs/(?:CONFIGURATION|CONTAINER_LIFECYCLE|CONTAINER_UPDATES|INDEX|INSTALLATION|QUICK_START|ROOTLESS|TROUBLESHOOTING)\.md|install-apprise-podman\.sh|scripts/(?:check-container-updates|update-rootful-systemd-containers)\.sh|tests/(?:container-update-policy|systemd-lifecycle-regression)\.sh)$
 
       - id: apprise-container-update-notification-policy
         name: Validate Apprise container update notifications

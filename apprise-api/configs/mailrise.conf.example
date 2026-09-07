@@ -1,0 +1,5 @@
+# Reference example only. The installer generates the deployed Mailrise file.
+configs:
+  notify:
+    urls:
+      - apprise://apprise-api:8000/your_apprise_config_key

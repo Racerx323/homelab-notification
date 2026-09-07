@@ -9,6 +9,8 @@ with optional rootless operation and Mailrise SMTP relay.
 - [Installation guide](INSTALLATION.md) — complete rootful and rootless setup
 - [Production container lifecycle](CONTAINER_LIFECYCLE.md) — compare, update,
   schedule notifications, validate, and roll back images
+- [Container update runbook](CONTAINER_UPDATES.md) — Apprise-only,
+  Mailrise-only, and combined exact-digest procedures
 - [Project overview](../README.md) — package contents and design
 
 ## Core Documentation
@@ -49,6 +51,27 @@ to connect SMTP-capable applications to Mailrise.
 The main installer is
 [install-apprise-podman.sh](../install-apprise-podman.sh).
 
+### Reproducible Rootful Production Installation
+
+Use exact reviewed platform digests on a fresh host:
+
+```bash
+sudo ./install-apprise-podman.sh \
+  --production \
+  --preflight-only \
+  --production-config configs/svmf-production.env
+
+sudo ./install-apprise-podman.sh \
+  --production \
+  --production-config configs/svmf-production.env
+```
+
+This mode installs and starts both application services and installs the full
+lifecycle helper and timer artifact set. The desired-state file also fixes the
+container UID/GID, timezone, and Mailrise account name. The timer remains
+disabled. See the
+[installation guide](INSTALLATION.md#reproducible-production-installation).
+
 ### Rootful Systemd Installation
 
 ```bash
@@ -75,8 +98,8 @@ systemctl --user enable --now apprise-api
 loginctl enable-linger "$USER"
 ```
 
-The installer creates systemd units but does not enable or start them. The
-explicit `enable --now` step is required.
+Except for `--production`, the installer creates systemd units but does not
+enable or start them. The explicit `enable --now` step is required.
 
 ## Utility Scripts
 
@@ -113,17 +136,25 @@ Stop managed services and verify the checksum before restoring.
 
 ### Container image lifecycle
 
+Run these commands on `svmf.local.theama.co`, not on the WSL operator
+workstation:
+
 ```bash
-sudo ./scripts/check-container-updates.sh
-sudo ./scripts/update-rootful-systemd-containers.sh --help
+sudo /usr/local/libexec/apprise-api/check-container-updates.sh
+sudo /usr/local/libexec/apprise-api/update-rootful-systemd-containers.sh --help
 ```
 
 The comparison is read-only. The updater requires exact reviewed platform
 digests and a new root-only backup path.
 
+Use the [container update runbook](CONTAINER_UPDATES.md) for copyable preflight,
+update, validation, and notification-reconciliation commands for all three
+update scenarios.
+
 The lifecycle guide also contains the explicit install, validation, disable,
 and evidence-retention procedure for the optional rootful weekly notification
-timer. The application installer does not enable it implicitly.
+timer. Production mode installs it disabled; no installer mode enables it
+implicitly.
 
 ## Examples
 
@@ -185,14 +216,15 @@ apprise-api/
 ├── README.md
 ├── install-apprise-podman.sh
 ├── podman-compose.yml
-├── configuration/
-│   └── mailrise.conf
 ├── configs/
-│   └── container-update-check.conf.example
+│   ├── container-update-check.conf.example
+│   ├── mailrise.conf.example
+│   └── svmf-production.env
 ├── docs/
 │   ├── INDEX.md
 │   ├── QUICK_START.md
 │   ├── CONTAINER_LIFECYCLE.md
+│   ├── CONTAINER_UPDATES.md
 │   ├── INSTALLATION.md
 │   ├── CONFIGURATION.md
 │   ├── ROOTLESS.md

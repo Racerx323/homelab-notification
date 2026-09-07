@@ -11,6 +11,30 @@ Deploy Apprise API on Debian 12 with Podman and send a notification.
 
 Run commands from the `apprise-api` directory unless stated otherwise.
 
+## Reproducible Production Installation
+
+For a fresh rootful production host, use reviewed platform digests and the
+complete production mode:
+
+```bash
+sudo ./install-apprise-podman.sh \
+  --production \
+  --preflight-only \
+  --production-config configs/svmf-production.env
+
+sudo ./install-apprise-podman.sh \
+  --production \
+  --production-config configs/svmf-production.env
+```
+
+This installs and starts Apprise API and Mailrise under systemd and installs
+all container lifecycle helpers. It leaves the recurring update-check timer
+disabled. It refuses an existing deployment; use the controlled updater for
+production image changes. The desired-state file also fixes the container
+UID/GID, timezone, and Mailrise account name. Require `PREFLIGHT_OK` from the
+first command before running the second. See the
+[complete production procedure](INSTALLATION.md#reproducible-production-installation).
+
 ## Rootful Installation with Systemd
 
 Create the system service:
@@ -19,8 +43,8 @@ Create the system service:
 sudo ./install-apprise-podman.sh --systemd
 ```
 
-The installer creates the service but does not enable or start it. Enable and
-start it explicitly:
+This flexible installer mode creates the service but does not enable or start
+it. Enable and start it explicitly:
 
 ```bash
 sudo systemctl enable --now apprise-api

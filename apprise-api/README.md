@@ -7,8 +7,8 @@ systemd services, persistent data, hardened runtime settings, and an optional
 
 ## Features
 
-- Official `docker.io/caronc/apprise:latest` image
-- Optional `docker.io/yoryan/mailrise:latest` relay
+- Official `docker.io/caronc/apprise:latest` image in flexible modes
+- Optional `docker.io/yoryan/mailrise:latest` relay in flexible modes
 - Rootful and rootless Podman workflows
 - System and user systemd units
 - Reboot-safe systemd lifecycle with PID/CID tracking and explicit cleanup
@@ -18,6 +18,8 @@ systemd services, persistent data, hardened runtime settings, and an optional
 - Read-only registry comparison and digest-bound systemd updates with rollback
 - Optional weekly update warnings through a local saved Apprise configuration
 - Failure cleanup that preserves pre-existing configuration and services
+- Fresh-host production mode with exact platform digests and complete lifecycle
+  artifacts
 
 ## Requirements
 
@@ -31,6 +33,31 @@ systemd services, persistent data, hardened runtime settings, and an optional
 ## Quick Start
 
 Run commands from this directory.
+
+### Reproducible Rootful Production Environment
+
+On a fresh production host, supply reviewed platform digests rather than
+installing whatever the moving `latest` tags contain:
+
+```bash
+sudo ./install-apprise-podman.sh \
+  --production \
+  --preflight-only \
+  --production-config configs/svmf-production.env
+
+sudo ./install-apprise-podman.sh \
+  --production \
+  --production-config configs/svmf-production.env
+```
+
+This creates and starts the rootful Apprise API and Mailrise systemd services,
+installs the comparator, notifier, updater, notification configuration, and
+timer units, and leaves the recurring timer disabled. It is fresh-host-only;
+use the lifecycle updater for an existing production environment. The reviewed
+configuration also fixes the container UID/GID, timezone, and Mailrise account
+name instead of inheriting them from the new host. See the
+[installation guide](docs/INSTALLATION.md#reproducible-production-installation)
+for inputs, safety boundaries, and acceptance checks.
 
 ### Rootful Systemd Service
 
@@ -62,11 +89,12 @@ systemctl --user enable --now apprise-api
 loginctl enable-linger "$USER"
 ```
 
-The installer creates systemd units but does not enable or start them. Review
-the generated units before running the explicit `enable --now` step. Generated
-units require Podman's discovered storage mounts, use container ID files,
-track conmon readiness through systemd notifications, and explicitly remove
-containers after stopping so a stale name cannot block the next boot.
+Except for `--production`, the installer creates systemd units but does not
+enable or start them. Review the generated units before running the explicit
+`enable --now` step. Generated units require Podman's discovered storage
+mounts, use container ID files, track conmon readiness through systemd
+notifications, and explicitly remove containers after stopping so a stale name
+cannot block the next boot.
 
 ## Verify
 
@@ -95,8 +123,12 @@ The built-in Apprise API configuration interface is available at
 For production image checks, updates, rollback, and service ownership, follow
 the [container lifecycle guide](docs/CONTAINER_LIFECYCLE.md). Do not update an
 active systemd deployment by rerunning the installer or pulling `latest`.
-The same guide documents the separately installed rootful notification timer;
-the main installer never enables recurring registry checks implicitly.
+The same guide documents the rootful notification timer. `--production`
+installs it disabled; other modes do not install it. No installer mode enables
+recurring registry checks implicitly.
+
+For copyable Apprise-only, Mailrise-only, and combined update commands, use the
+[container update runbook](docs/CONTAINER_UPDATES.md).
 
 ## Send a Notification
 
@@ -140,6 +172,11 @@ The installer:
 6. Creates `notify-network` and Mailrise configuration when requested.
 7. Starts containers immediately in direct mode, or writes inactive systemd
    units in `--systemd` mode.
+
+With `--production`, the installer instead requires exact reviewed platform
+digests, rejects existing managed state, installs the complete rootful systemd
+and lifecycle artifact set, activates and verifies both application services,
+and leaves the update-check timer disabled.
 
 Rootful data is stored in `/var/lib/apprise`; rootless data is stored in
 `~/.apprise`. Rootful and rootless Podman use separate container storage.
@@ -206,14 +243,15 @@ apprise-api/
 ├── README.md
 ├── install-apprise-podman.sh
 ├── podman-compose.yml
-├── configuration/
-│   └── mailrise.conf
 ├── configs/
-│   └── container-update-check.conf.example
+│   ├── container-update-check.conf.example
+│   ├── mailrise.conf.example
+│   └── svmf-production.env
 ├── docs/
 │   ├── INDEX.md
 │   ├── QUICK_START.md
 │   ├── CONTAINER_LIFECYCLE.md
+│   ├── CONTAINER_UPDATES.md
 │   ├── INSTALLATION.md
 │   ├── CONFIGURATION.md
 │   ├── ROOTLESS.md
@@ -247,6 +285,7 @@ apprise-api/
 - [Rootless guide](docs/ROOTLESS.md)
 - [Troubleshooting guide](docs/TROUBLESHOOTING.md)
 - [Production container lifecycle](docs/CONTAINER_LIFECYCLE.md)
+- [Container update runbook](docs/CONTAINER_UPDATES.md)
 
 ## Support
 

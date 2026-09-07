@@ -61,10 +61,24 @@ journalctl --user -u apprise-api -n 100
 
 ## Installation and Container Issues
 
+### Production Installer Rejects an Existing Target
+
+`--production` is a fresh-host installer, not an update or repair path. It
+stops before pulling images or writing application state when it detects an
+existing managed data directory, configuration, unit, helper, container, or
+network. The error identifies the exact conflicting target.
+
+Do not remove that target merely to make the installer continue. For an
+existing production deployment, use the
+[container update runbook](CONTAINER_UPDATES.md), or diagnose and repair the
+specific existing component. For disaster recovery, inspect and preserve the
+detected state before selecting a restore procedure.
+
 ### Container Is Missing After `--systemd` Installation
 
-The installer creates service units but does not enable or start them. This is
-expected. Start the generated service:
+Flexible `--systemd` installations create service units but do not enable or
+start them. This is expected. Production mode activates both application
+services itself. For a flexible installation, start the generated service:
 
 ```bash
 # Rootful
@@ -103,6 +117,12 @@ unqualified registry search configuration:
 sudo podman pull docker.io/caronc/apprise:latest
 sudo podman pull docker.io/yoryan/mailrise:latest
 ```
+
+Those moving-tag commands are diagnostics for flexible installations only.
+Production mode pulls the reviewed `repository@sha256:platform-digest` supplied
+to the installer and verifies that the pulled image architecture matches the
+host. Do not replace a production digest with `latest` to work around a pull
+failure.
 
 Do not add the obsolete `[registries.search]` format to
 `/etc/containers/registries.conf`. Current registry configuration uses TOML,
@@ -157,14 +177,16 @@ podman inspect apprise-api --format '{{.HostConfig.UsernsMode}} {{.Config.User}}
 ls -ld ~/.apprise ~/.apprise/config ~/.apprise/plugin ~/.apprise/attach
 ```
 
-The namespace mode should be `keep-id`. Back up locally modified service files,
-then re-run the current installer to regenerate an older unit.
+The namespace mode should be `keep-id`. On a new, unaccepted installation,
+regenerate an older unit with the current installer before enabling it. Do not
+rerun the installer while a systemd-owned container is active; use a reviewed
+unit replacement that preserves its other lifecycle controls.
 
 ### Avoid Broad Podman Cleanup
 
 Do not use `podman system prune -a` as a routine fix; it affects every unused
-container and image owned by that Podman user. Remove only this deployment's
-known resources after reviewing them:
+container and image owned by that Podman user. For direct-container deployments,
+remove only this deployment's known resources after reviewing them:
 
 ```bash
 sudo podman ps -a --filter name=apprise-api --filter name=mailrise
@@ -172,8 +194,41 @@ sudo podman rm -f apprise-api mailrise
 ```
 
 Ignore a missing Mailrise container when Mailrise is not installed.
+For systemd-managed deployments, stop and disable the owning units first, or
+follow the narrowly scoped stale-container recovery procedure below.
 
 ## Systemd Issues
+
+### Scheduled Container Check Exits 125
+
+If the weekly check reports Podman exit `125`, inspect the unit journal:
+
+```bash
+sudo journalctl -u apprise-container-update-check.service -n 50 --no-pager
+```
+
+This error identifies the missing netavark lock exception:
+
+```text
+Error: open /etc/containers/networks/netavark.lock: read-only file system
+```
+
+The repository unit keeps `ProtectSystem=full` and adds only:
+
+```ini
+ReadWritePaths=/etc/containers/networks/netavark.lock
+```
+
+Deploy the complete reviewed unit; do not add a writable exception for all of
+`/etc`, `/etc/containers`, or `/etc/containers/networks`. After deployment,
+reload systemd, reset the failed unit, and run one controlled service check.
+The check may send a pending-update or recovery notification.
+
+J1-SVMF encountered this exact condition on September 7, 2026. After the
+single-file exception was deployed, the real service invocation returned `0`,
+delivered the expected pending-update warning, and left both application
+services healthy. The accepted bundle and rollback path are recorded in the
+[production container lifecycle](CONTAINER_LIFECYCLE.md#podman-netavark-lock-compatibility).
 
 ### Service Does Not Start
 
@@ -199,7 +254,10 @@ container repair step.
 
 ### Service Is Not Enabled After Installation
 
-This is intentional. Enable it after reviewing the generated unit:
+This is intentional for flexible `--systemd` installations. Production mode
+enables the application services but deliberately leaves only the recurring
+update-check timer disabled. Enable a flexible service after reviewing the
+generated unit:
 
 ```bash
 # Rootful
@@ -234,21 +292,21 @@ sudo podman ps -a --filter name=apprise-api --filter name=mailrise
 sudo journalctl -b -u apprise-api -u mailrise --no-pager
 ```
 
-Remove only a confirmed exited deployment container, regenerate the units with
-the current installer, and start the affected service. This example recovers
-Mailrise:
+Remove only a confirmed exited deployment container and start the affected
+service. Do not rerun the installer against an active production deployment.
+This example recovers Mailrise without changing its unit or image:
 
 ```bash
 test "\$(sudo podman inspect mailrise --format '{{.State.Status}}')" = exited
 sudo podman rm mailrise
-sudo ./install-apprise-podman.sh --systemd --mailrise --mailrise-apprise-key your_apprise_config_key
-sudo systemd-analyze verify /etc/systemd/system/apprise-api.service /etc/systemd/system/mailrise.service
 sudo systemctl reset-failed mailrise
 sudo systemctl start mailrise
 ```
 
-For rootless mode, remove `sudo` from Podman and installer commands and use
-`systemctl --user` plus `systemd-analyze --user`.
+If the installed unit lacks the current CID tracking and `ExecStopPost`
+contract, deploy a separately reviewed replacement unit after restoring
+service. For rootless mode, remove `sudo` from Podman commands and use
+`systemctl --user`.
 
 ## Network and API Issues
 
@@ -441,7 +499,8 @@ in a URL.
 
 ### Mailrise Unit Does Not Exist
 
-Re-run the installer with Mailrise enabled, then explicitly start the units:
+On an unaccepted flexible installation, rerun the installer with Mailrise
+enabled, then explicitly start the units:
 
 ```bash
 sudo ./install-apprise-podman.sh \
@@ -454,6 +513,11 @@ sudo systemctl enable --now apprise-api mailrise
 
 For rootless mode, add `--rootless`, remove `sudo`, and use
 `systemctl --user enable --now`.
+
+Do not use this command to add Mailrise to an accepted production deployment:
+it pulls moving tags and regenerates the Apprise unit. Use a separately reviewed
+production repair or migration operation. `--production` cannot be used because
+it deliberately rejects existing managed state.
 
 ### Mailrise Cannot Reach Apprise API
 

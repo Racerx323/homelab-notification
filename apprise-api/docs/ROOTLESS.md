@@ -49,6 +49,12 @@ directories to remain writable without broad permissions.
 
 Do not run a rootless installation with `sudo`.
 
+`--production` is intentionally rootful-only because its updater, system units,
+paths under `/etc` and `/var/lib`, and update-check timer are the J1-SVMF
+production contract. Rootless installations remain supported through the
+flexible modes in this guide, but they do not install the rootful lifecycle
+helper or timer set.
+
 ## Direct Container Installation
 
 Start Apprise API immediately without creating a systemd unit:
@@ -190,14 +196,19 @@ Omit Mailrise from commands when it is not installed.
 Rootless containers must be managed by the same user that installed them:
 
 ```bash
+# Inspection is valid for both ownership modes
 podman ps -a
 podman logs -f apprise-api
 podman logs -f mailrise
+
+# Direct-container mode only
 podman restart apprise-api
 podman restart mailrise
 ```
 
-Do not use `sudo podman`; that selects root's separate container storage.
+For user-systemd installations, use `systemctl --user` for start, stop, and
+restart; do not issue those lifecycle operations directly through Podman. Do
+not use `sudo podman`; that selects root's separate container storage.
 
 ## Storage
 
@@ -256,8 +267,10 @@ podman inspect apprise-api --format '{{.HostConfig.UsernsMode}} {{.Config.User}}
 ```
 
 The user namespace should be `keep-id`, and the directories should be owned by
-the current user. Re-run the current installer after backing up locally modified
-service units.
+the current user. On a new, unaccepted installation, regenerate an older unit
+with the current installer before enabling it. Do not rerun the installer while
+a user-systemd-owned container is active; use a reviewed unit replacement that
+preserves its other lifecycle controls.
 
 ### Services Stop After Logout
 

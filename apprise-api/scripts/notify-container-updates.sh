@@ -175,8 +175,13 @@ case "$comparison_status" in
         observed_status='current'
         if [[ $prior_status == pending || $prior_status == failure ]]; then
             notification_type='success'
-            notification_title="Container image check recovered on $host_name"
-            notification_body="Apprise API and Mailrise now match the current registry platform digests. Review: docs/CONTAINER_LIFECYCLE.md"
+            notification_title="Container update check recovered - $host_name"
+            printf -v notification_body '%s\n\n%s\n%s\n\n%s\n%s' \
+                'Status: Registry comparison succeeded.' \
+                'Result: Apprise API and Mailrise are current.' \
+                'No container update was performed.' \
+                'Reference:' \
+                'docs/CONTAINER_LIFECYCLE.md'
         fi
         ;;
     10)
@@ -187,24 +192,36 @@ case "$comparison_status" in
         observed_digest_signature="sha256:$(sha256sum <<<"$digest_material" | awk '{print $1}')"
         if [[ $prior_status != pending || $prior_digest_signature != "$observed_digest_signature" ]]; then
             notification_type='warning'
-            notification_title="Container update available on $host_name"
+            notification_title="Container update available - $host_name"
         elif ((current_epoch - prior_notification_epoch >= reminder_seconds)); then
             notification_type='warning'
-            notification_title="Container update reminder for $host_name"
+            notification_title="Container update reminder - $host_name"
         fi
         if [[ -n $notification_type ]]; then
             update_details="$(awk -F '\t' '$5 == "update-available" {
-                printf "%s: running image %s, candidate %s\\n", $1, $3, $4
+                printf "Container: %s\nCurrent image ID: %s\nAvailable registry digest: %s\n\n", $1, $3, $4
             }' <<<"$comparison_output")"
-            notification_body="${update_details}Review upstream changes, then use the exact-digest procedure in docs/CONTAINER_LIFECYCLE.md. No update was applied."
+            printf -v notification_body '%s\n\n%s\n%s\n%s\n\n%s\n%s' \
+                "$update_details" \
+                'Next step:' \
+                'Review the upstream release notes, then follow the exact-digest update procedure:' \
+                'docs/CONTAINER_LIFECYCLE.md' \
+                'Safety:' \
+                'No image was pulled or deployed.'
         fi
         ;;
     *)
         observed_status='failure'
         if [[ $prior_status != failure ]] || ((current_epoch - prior_notification_epoch >= reminder_seconds)); then
             notification_type='failure'
-            notification_title="Container update check failed on $host_name"
-            notification_body="The registry comparison could not be completed safely (exit $comparison_status). Inspect: journalctl -u apprise-container-update-check.service"
+            notification_title="Container update check failed - $host_name"
+            printf -v notification_body '%s\n%s\n\n%s\n%s\n\n%s\n%s' \
+                'Status: Registry comparison failed.' \
+                "Exit status: $comparison_status" \
+                'Next step:' \
+                'sudo journalctl -u apprise-container-update-check.service -n 50 --no-pager' \
+                'Safety:' \
+                'No container update was attempted.'
         fi
         ;;
 esac
