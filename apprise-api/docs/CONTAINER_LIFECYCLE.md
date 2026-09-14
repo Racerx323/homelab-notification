@@ -99,16 +99,20 @@ Available registry digest: sha256:FULL_PLATFORM_DIGEST
 
 Next step:
 Review the upstream release notes, then follow the exact-digest update procedure:
-docs/CONTAINER_LIFECYCLE.md
+/home/aaron/code/homelab-notification/apprise-api/docs/CONTAINER_LIFECYCLE.md
 
 Safety:
 No image was pulled or deployed.
 ```
 
 Failure alerts separate the exit status, journal command, and confirmation that
-no update was attempted. Recovery alerts state the successful comparison,
-current-image result, and lifecycle reference. Full image IDs and digests are
-retained so the alert remains usable as maintenance evidence.
+no update was attempted. A check returning to current status uses the title
+`Container update check successful - HOST`, states the successful comparison,
+and includes the full operator-workstation lifecycle-document path. The path is
+set by `CONTAINER_UPDATE_REFERENCE_PATH` in
+`/etc/apprise-container-update-check.conf`; it is a reference for the operator
+and does not need to exist on J1-SVMF. Full image IDs and digests are retained
+so the alert remains usable as maintenance evidence.
 
 On September 7, 2026, J1-SVMF accepted the readable alert formatter in bundle
 SHA-256
@@ -120,6 +124,21 @@ leaving the notification state checksum unchanged. The timer and both
 application services remained healthy and enabled. Root-only rollback evidence
 is retained under
 `/var/backups/apprise-container-update/2026-09-07-alert-format`.
+
+On September 14, 2026, J1-SVMF accepted the successful-check title and full
+operator-reference-path update. The title changed from
+`Container update check recovered` to
+`Container update check successful`. The validated
+`CONTAINER_UPDATE_REFERENCE_PATH` setting applies the full operator path to
+both successful and update-available alerts. The installed notifier SHA-256 is
+`4842a82a61145122c37637ca3bc953dcf04e240c6ff7b4140b33fc81a68cf12c`,
+and the installed update-check configuration SHA-256 is
+`cdb8d606648b41211c10eb37e309dd9819bfe72c4c41d33647afca593c91795b`.
+A live dry run returned both containers as current, sent no notification, and
+left the notification state unchanged. The timer and both application services
+remained enabled and active, and the Apprise status endpoint returned `OK`.
+Root-only rollback evidence is retained under
+`/var/backups/apprise-container-update/2026-09-14-success-title-reference`.
 
 ### Install the timer
 

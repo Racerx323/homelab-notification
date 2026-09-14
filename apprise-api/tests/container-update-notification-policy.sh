@@ -53,6 +53,7 @@ require_fixed 'RandomizedDelaySec=1h' "$timer_template"
 require_fixed 'Persistent=true' "$timer_template"
 require_fixed 'APPRISE_BASE_URL=http://127.0.0.1:8000' "$config_example"
 require_fixed 'APPRISE_CONFIG_KEY=apprise' "$config_example"
+require_fixed 'CONTAINER_UPDATE_REFERENCE_PATH=/home/aaron/code/homelab-notification/apprise-api/docs/CONTAINER_LIFECYCLE.md' "$config_example"
 require_fixed 'CONTAINER_UPDATE_RETRY_ATTEMPTS=4' "$config_example"
 require_fixed 'CONTAINER_UPDATE_RETRY_DELAY_SECONDS=900' "$config_example"
 
@@ -174,7 +175,7 @@ expected_first_body="$(printf '%s\n' \
     '' \
     'Next step:' \
     'Review the upstream release notes, then follow the exact-digest update procedure:' \
-    'docs/CONTAINER_LIFECYCLE.md' \
+    '/home/aaron/code/homelab-notification/apprise-api/docs/CONTAINER_LIFECYCLE.md' \
     '' \
     'Safety:' \
     'No image was pulled or deployed.')"
@@ -199,6 +200,15 @@ run_notifier >/dev/null
 printf 'current\n' >"$mode_file"
 run_notifier >/dev/null
 [[ $(wc -l <"$curl_log") -eq 4 ]] || fail 'recovery did not send exactly once'
+recovery_title="$(sed -n '4p' "$payload_log" | jq -r '.title')"
+recovery_body="$(sed -n '4p' "$payload_log" | jq -r '.body')"
+readonly recovery_title recovery_body
+[[ $recovery_title == 'Container update check successful - '* ]] ||
+    fail "unexpected successful-check title: $recovery_title"
+grep -Fq $'Status: Registry comparison succeeded.\n\nResult: Apprise API and Mailrise are current.\nNo container update was performed.' \
+    <<<"$recovery_body" || fail 'successful-check payload lacks readable status lines'
+grep -Fq $'Reference:\n/home/aaron/code/homelab-notification/apprise-api/docs/CONTAINER_LIFECYCLE.md' \
+    <<<"$recovery_body" || fail 'successful-check payload lacks the full operator reference path'
 
 comparison_status=0
 printf 'failure\n' >"$mode_file"

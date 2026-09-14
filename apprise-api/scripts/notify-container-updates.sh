@@ -10,11 +10,13 @@ readonly state_schema='apprise-container-update-state/v1'
 readonly default_state_directory='/var/lib/apprise-container-lifecycle'
 readonly default_apprise_base_url='http://127.0.0.1:8000'
 readonly default_apprise_config_key='apprise'
+readonly default_lifecycle_reference='/home/aaron/code/homelab-notification/apprise-api/docs/CONTAINER_LIFECYCLE.md'
 readonly max_message_bytes=12000
 
 state_directory="${CONTAINER_UPDATE_STATE_DIRECTORY:-$default_state_directory}"
 apprise_base_url="${APPRISE_BASE_URL:-$default_apprise_base_url}"
 apprise_config_key="${APPRISE_CONFIG_KEY:-$default_apprise_config_key}"
+lifecycle_reference="${CONTAINER_UPDATE_REFERENCE_PATH:-$default_lifecycle_reference}"
 retry_attempts="${CONTAINER_UPDATE_RETRY_ATTEMPTS:-4}"
 retry_delay_seconds="${CONTAINER_UPDATE_RETRY_DELAY_SECONDS:-900}"
 reminder_seconds="${CONTAINER_UPDATE_REMINDER_SECONDS:-518400}"
@@ -62,6 +64,9 @@ done
     fail "APPRISE_BASE_URL must be $default_apprise_base_url"
 [[ $apprise_config_key =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]] ||
     fail 'APPRISE_CONFIG_KEY is invalid'
+[[ $lifecycle_reference == /* && $lifecycle_reference != / &&
+    $lifecycle_reference != *$'\n'* && $lifecycle_reference != *$'\r'* ]] ||
+    fail 'CONTAINER_UPDATE_REFERENCE_PATH must be a safe absolute path'
 [[ $retry_attempts =~ ^[1-4]$ ]] || fail 'retry attempts must be between 1 and 4'
 [[ $retry_delay_seconds =~ ^[0-9]+$ && $retry_delay_seconds -le 3600 ]] ||
     fail 'retry delay must be between 0 and 3600 seconds'
@@ -175,13 +180,13 @@ case "$comparison_status" in
         observed_status='current'
         if [[ $prior_status == pending || $prior_status == failure ]]; then
             notification_type='success'
-            notification_title="Container update check recovered - $host_name"
+            notification_title="Container update check successful - $host_name"
             printf -v notification_body '%s\n\n%s\n%s\n\n%s\n%s' \
                 'Status: Registry comparison succeeded.' \
                 'Result: Apprise API and Mailrise are current.' \
                 'No container update was performed.' \
                 'Reference:' \
-                'docs/CONTAINER_LIFECYCLE.md'
+                "$lifecycle_reference"
         fi
         ;;
     10)
@@ -205,7 +210,7 @@ case "$comparison_status" in
                 "$update_details" \
                 'Next step:' \
                 'Review the upstream release notes, then follow the exact-digest update procedure:' \
-                'docs/CONTAINER_LIFECYCLE.md' \
+                "$lifecycle_reference" \
                 'Safety:' \
                 'No image was pulled or deployed.'
         fi
